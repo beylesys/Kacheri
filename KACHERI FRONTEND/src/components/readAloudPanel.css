@@ -1,0 +1,218 @@
+/* readAloudPanel.css — Styles for TTS Read Aloud floating panel */
+
+.read-aloud-panel {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  width: 320px;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 2000;
+  color: #e2e8f0;
+  font-size: 13px;
+  animation: slideInRight 0.2s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.read-aloud-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.read-aloud-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #f1f5f9;
+}
+
+.read-aloud-close {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.read-aloud-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+.read-aloud-error {
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.read-aloud-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.read-aloud-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.read-aloud-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.read-aloud-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.read-aloud-btn.active {
+  background: #3b82f6;
+  color: white;
+}
+
+.read-aloud-progress-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.read-aloud-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.read-aloud-progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+.read-aloud-time {
+  font-size: 11px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  min-width: 70px;
+  text-align: right;
+}
+
+.read-aloud-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.read-aloud-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.read-aloud-setting label {
+  font-size: 12px;
+  color: #94a3b8;
+  min-width: 50px;
+}
+
+.read-aloud-select {
+  flex: 1;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s;
+}
+
+.read-aloud-select:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.read-aloud-select:focus {
+  border-color: #3b82f6;
+}
+
+.read-aloud-select option,
+.read-aloud-select optgroup {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.read-aloud-select-sm {
+  flex: 0;
+  width: 80px;
+}
+
+.read-aloud-preview {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.read-aloud-preview-label {
+  font-size: 11px;
+  color: #64748b;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.read-aloud-preview-text {
+  font-size: 12px;
+  color: #94a3b8;
+  font-style: italic;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.read-aloud-status {
+  padding: 10px 16px;
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+}

@@ -1,0 +1,191 @@
+/* KACHERI FRONTEND/src/components/keyboardShortcutsModal.css */
+/* Styles for the Keyboard Shortcuts Modal */
+
+.shortcuts-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  backdrop-filter: blur(2px);
+}
+
+.shortcuts-modal {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  animation: shortcuts-modal-in 0.15s ease-out;
+}
+
+@keyframes shortcuts-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.shortcuts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #374151;
+}
+
+.shortcuts-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f9fafb;
+}
+
+.shortcuts-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #9ca3af;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.shortcuts-close:hover {
+  background: #374151;
+  color: #f9fafb;
+}
+
+.shortcuts-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px;
+}
+
+.shortcuts-section {
+  margin-bottom: 20px;
+}
+
+.shortcuts-section:last-child {
+  margin-bottom: 8px;
+}
+
+.shortcuts-section-title {
+  margin: 0 0 10px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b7280;
+}
+
+.shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.shortcuts-keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.shortcuts-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
+  background: #1f2937;
+  border: 1px solid #4b5563;
+  border-radius: 5px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.shortcuts-plus {
+  color: #6b7280;
+  font-size: 11px;
+  margin: 0 2px;
+}
+
+.shortcuts-indent {
+  color: #6b7280;
+  font-size: 13px;
+  margin-left: 8px;
+}
+
+.shortcuts-action {
+  flex: 1;
+  color: #d1d5db;
+  font-size: 13px;
+  text-align: right;
+}
+
+.shortcuts-footer {
+  padding: 12px 20px;
+  border-top: 1px solid #374151;
+  text-align: center;
+}
+
+.shortcuts-hint {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.shortcuts-hint .shortcuts-key {
+  height: 20px;
+  min-width: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+  margin: 0 4px;
+  vertical-align: middle;
+}
+
+/* Scrollbar styling */
+.shortcuts-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.shortcuts-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.shortcuts-content::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+.shortcuts-content::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}

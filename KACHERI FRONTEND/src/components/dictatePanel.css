@@ -1,0 +1,291 @@
+/* dictatePanel.css — Styles for STT Dictation floating panel */
+
+.dictate-panel {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  width: 340px;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 2000;
+  color: #e2e8f0;
+  font-size: 13px;
+  animation: slideInRight 0.2s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.dictate-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dictate-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #f1f5f9;
+}
+
+.dictate-close {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.dictate-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+.dictate-error {
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dictate-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dictate-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.dictate-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dictate-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dictate-btn.recording {
+  background: #ef4444;
+  color: white;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+}
+
+.dictate-time {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
+}
+
+.dictate-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+}
+
+.dictate-status-dot.recording {
+  background: #ef4444;
+  animation: blink 1s ease-in-out infinite;
+}
+
+.dictate-status-dot.paused {
+  background: #f59e0b;
+}
+
+.dictate-status-dot.processing {
+  background: #3b82f6;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.dictate-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dictate-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dictate-setting label {
+  font-size: 12px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.dictate-setting input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.dictate-select {
+  flex: 1;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s;
+}
+
+.dictate-select:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dictate-select:focus {
+  border-color: #3b82f6;
+}
+
+.dictate-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dictate-select option {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.dictate-preview {
+  padding: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  min-height: 80px;
+}
+
+.dictate-preview-label {
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.dictate-preview-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e2e8f0;
+  max-height: 120px;
+  overflow-y: auto;
+  word-wrap: break-word;
+}
+
+.dictate-preview-text .final-text {
+  color: #f1f5f9;
+}
+
+.dictate-preview-text .interim-text {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.dictate-preview-text .placeholder {
+  color: #64748b;
+  font-style: italic;
+}
+
+.dictate-confidence {
+  padding: 8px 16px;
+  font-size: 11px;
+  color: #64748b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dictate-actions {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dictate-insert-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: #3b82f6;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dictate-insert-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.dictate-insert-btn:disabled {
+  background: rgba(59, 130, 246, 0.3);
+  cursor: not-allowed;
+}
+
+.dictate-status {
+  padding: 10px 16px;
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+}

@@ -1,0 +1,84 @@
+{
+  "id": "one-pager",
+  "name": "One-Pager",
+  "description": "Executive summary format with key points",
+  "icon": "file-text",
+  "category": "business",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": { "level": 1 },
+        "content": [{ "type": "text", "text": "Executive Summary" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "The Problem" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Clearly state the problem or opportunity being addressed." }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "The Solution" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Describe the proposed solution in simple terms." }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Key Benefits" }]
+      },
+      {
+        "type": "bulletList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Benefit 1" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Benefit 2" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Benefit 3" }] }]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Investment Required" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Outline the resources, time, or budget needed." }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Next Steps" }]
+      },
+      {
+        "type": "orderedList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Action item 1" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Action item 2" }] }]
+          }
+        ]
+      }
+    ]
+  }
+}

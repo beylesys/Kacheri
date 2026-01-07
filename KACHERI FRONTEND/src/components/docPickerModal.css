@@ -1,0 +1,94 @@
+/* KACHERI FRONTEND/src/components/docPickerModal.css */
+/* Styles for DocPickerModal - extends base bk-modal styles from promptDialog.css */
+
+.doc-picker-modal {
+  width: min(480px, calc(100% - 32px));
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.doc-picker-header .bk-modal-title {
+  margin: 0;
+}
+
+.doc-picker-close {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 120ms ease;
+}
+
+.doc-picker-close:hover {
+  color: #e5e7eb;
+}
+
+.doc-picker-search {
+  margin-top: 12px;
+}
+
+.doc-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 12px 0;
+  max-height: 300px;
+  min-height: 100px;
+}
+
+.doc-picker-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.5);
+  color: #e5e7eb;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.doc-picker-item:hover {
+  background: rgba(30, 64, 175, 0.3);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.doc-picker-item.selected {
+  background: rgba(124, 58, 237, 0.25);
+  border-color: #8b5cf6;
+}
+
+.doc-picker-item-title {
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.doc-picker-item-id {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.doc-picker-status {
+  text-align: center;
+  padding: 24px;
+  color: #9ca3af;
+}
+
+.doc-picker-error {
+  color: #f97373;
+}

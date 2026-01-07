@@ -1,0 +1,692 @@
+/* KACHERI FRONTEND/src/components/versionsPanel.css
+   Styles for VersionsPanel drawer and version-related components
+*/
+
+/* Main drawer panel */
+.versions-panel {
+  position: fixed;
+  top: 72px;
+  right: 0;
+  bottom: 16px;
+  width: 340px;
+  max-height: calc(100vh - 88px);
+  padding: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  z-index: 2000;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  transform: translateX(calc(100% + 16px));
+  opacity: 0.92;
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+}
+
+.versions-panel.open {
+  transform: translateX(-16px);
+  opacity: 1;
+}
+
+/* Header */
+.versions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.versions-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.versions-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.versions-close:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Filter tabs */
+.versions-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.versions-tab-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.versions-tab-btn:hover {
+  background: var(--panel-elev);
+  color: var(--text);
+}
+
+.versions-tab-btn.active {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+  color: #fff;
+}
+
+.versions-tab-count {
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+/* Version list */
+.versions-list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 -14px;
+  padding: 0 14px;
+}
+
+.versions-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.versions-loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.versions-error {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fecaca;
+  font-size: 12px;
+}
+
+/* Individual version item */
+.version-item {
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.15s ease;
+}
+
+.version-item:hover {
+  border-color: var(--brand-500);
+}
+
+.version-item.latest {
+  border-color: var(--brand-400);
+  background: rgba(106, 78, 254, 0.05);
+}
+
+/* Version header */
+.version-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.version-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--brand-600);
+  color: #fff;
+}
+
+.version-latest-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--green-500);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.version-time {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* Version name */
+.version-name {
+  margin-bottom: 6px;
+}
+
+.version-name-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.version-name-text.unnamed {
+  font-style: italic;
+  color: var(--muted);
+}
+
+.version-rename-input {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--panel);
+  border: 1px solid var(--brand-500);
+  border-radius: 6px;
+  color: var(--text);
+  outline: none;
+}
+
+.version-rename-input:focus {
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15);
+}
+
+/* Version meta */
+.version-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.version-author {
+  /* inherits from .version-meta */
+}
+
+.version-word-count {
+  padding: 1px 6px;
+  background: var(--panel);
+  border-radius: 4px;
+}
+
+/* Version actions */
+.version-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.version-action-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.version-action-btn:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.version-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.version-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--red-500);
+}
+
+/* Compare dropdown */
+.version-compare-wrapper {
+  position: relative;
+}
+
+.version-compare-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 180px;
+  margin-top: 4px;
+  padding: 6px 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+}
+
+.version-compare-dropdown-header {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.version-compare-option {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.version-compare-option:hover {
+  background: var(--surface);
+}
+
+/* Create version section */
+.versions-create-section {
+  flex-shrink: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}
+
+.versions-create-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.version-input-wrapper {
+  margin-bottom: 10px;
+}
+
+.version-name-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.version-name-input::placeholder {
+  color: var(--muted);
+}
+
+.version-name-input:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15);
+}
+
+.version-input-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.version-submit-btn {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.version-submit-btn.primary {
+  background: var(--brand-600);
+  color: #fff;
+}
+
+.version-submit-btn.primary:hover:not(:disabled) {
+  background: var(--brand-700);
+}
+
+.version-submit-btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Diff Modal */
+.diff-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.diff-modal {
+  width: 90%;
+  max-width: 700px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.diff-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.diff-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.diff-modal-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.diff-modal-close:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.diff-stats {
+  display: flex;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.diff-stat.additions {
+  color: var(--green-500);
+}
+
+.diff-stat.deletions {
+  color: var(--red-500);
+}
+
+.diff-modal-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.diff-loading,
+.diff-error,
+.diff-no-changes {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.diff-error {
+  color: var(--red-500);
+}
+
+.diff-hunks {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.diff-hunk {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diff-hunk-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-hunk-content {
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diff-line {
+  display: flex;
+  padding: 2px 12px;
+}
+
+.diff-line-add {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--green-400);
+}
+
+.diff-line-remove {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--red-400);
+}
+
+.diff-line-context {
+  color: var(--muted);
+}
+
+.diff-line-prefix {
+  width: 20px;
+  flex-shrink: 0;
+  user-select: none;
+  opacity: 0.6;
+}
+
+.diff-line-text {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.diff-modal-btn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.diff-modal-btn:hover {
+  background: var(--panel-elev);
+}
+
+/* Restore Dialog */
+.restore-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.restore-dialog {
+  width: 90%;
+  max-width: 400px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.restore-dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.restore-dialog-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.restore-dialog-content {
+  padding: 16px 20px;
+}
+
+.restore-dialog-message {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0 0 12px 0;
+}
+
+.restore-dialog-info {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 6px;
+}
+
+.restore-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.restore-dialog-btn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.restore-dialog-btn.cancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.restore-dialog-btn.cancel:hover {
+  background: var(--surface);
+}
+
+.restore-dialog-btn.cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.restore-dialog-btn.confirm {
+  background: var(--brand-600);
+  border: none;
+  color: #fff;
+}
+
+.restore-dialog-btn.confirm:hover:not(:disabled) {
+  background: var(--brand-700);
+}
+
+.restore-dialog-btn.confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .versions-panel {
+    width: 100%;
+    max-width: 100%;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    top: auto;
+    height: 60vh;
+    max-height: 60vh;
+    border-radius: 12px 12px 0 0;
+    transform: translateY(100%);
+  }
+
+  .versions-panel.open {
+    transform: translateY(0);
+  }
+
+  .diff-modal {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .restore-dialog {
+    width: 95%;
+  }
+}

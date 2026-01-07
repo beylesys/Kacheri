@@ -1,0 +1,112 @@
+/* frontend/src/components/promptDialog.css */
+
+.bk-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.76); /* dark, slightly transparent */
+  backdrop-filter: blur(4px);
+}
+
+.bk-modal {
+  width: min(420px, calc(100% - 32px));
+  padding: 20px 24px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.85);
+  background: radial-gradient(circle at top left, #111827 0, #020617 55%, #020617 100%);
+  color: #e5e7eb;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.bk-modal-header {
+  margin-bottom: 12px;
+}
+
+.bk-modal-title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.bk-modal-description {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+.bk-modal-body {
+  margin-top: 8px;
+}
+
+.bk-modal-input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e5e7eb;
+  font-size: 0.9rem;
+}
+
+.bk-modal-input::placeholder {
+  color: #6b7280;
+}
+
+.bk-modal-input:focus {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 1px;
+}
+
+.bk-modal-error {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: #f97373;
+}
+
+.bk-modal-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bk-button {
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: 1px solid rgba(148, 163, 184, 0.75);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e5e7eb;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+
+.bk-button:hover:not(:disabled) {
+  background: rgba(30, 64, 175, 0.95);
+  border-color: rgba(129, 140, 248, 0.9);
+  transform: translateY(-0.5px);
+}
+
+.bk-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.bk-button-primary {
+  background: linear-gradient(135deg, #7c3aed, #ec4899);
+  border-color: transparent;
+  color: #f9fafb;
+}
+
+.bk-button-primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+}

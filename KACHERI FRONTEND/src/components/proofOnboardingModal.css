@@ -1,0 +1,259 @@
+/* KACHERI FRONTEND/src/components/proofOnboardingModal.css */
+/* Styles for the Proof System Onboarding Modal */
+
+.onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(3px);
+}
+
+.onboarding-modal {
+  position: relative;
+  background: linear-gradient(145deg, #111827, #1f2937);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 20px;
+  width: 90%;
+  max-width: 480px;
+  padding: 32px;
+  box-shadow:
+    0 25px 60px rgba(0, 0, 0, 0.5),
+    0 0 40px rgba(99, 102, 241, 0.15);
+  animation: onboarding-modal-in 0.2s ease-out;
+}
+
+@keyframes onboarding-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Close button */
+.onboarding-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  color: #9ca3af;
+  font-size: 22px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.onboarding-close:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #f87171;
+}
+
+/* Content area */
+.onboarding-content {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.onboarding-icon {
+  font-size: 56px;
+  margin-bottom: 20px;
+  filter: drop-shadow(0 4px 12px rgba(99, 102, 241, 0.3));
+}
+
+.onboarding-title {
+  margin: 0 0 16px 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #f9fafb;
+  letter-spacing: 0.3px;
+}
+
+.onboarding-description {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #9ca3af;
+}
+
+.onboarding-details {
+  margin: 20px 0 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+.onboarding-details li {
+  padding: 6px 0;
+  font-size: 14px;
+  color: #d1d5db;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.onboarding-details li::before {
+  content: "•";
+  color: #6366f1;
+  font-size: 18px;
+}
+
+/* Checkbox */
+.onboarding-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+.onboarding-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+
+.onboarding-checkbox:hover {
+  color: #e5e7eb;
+}
+
+/* Progress dots */
+.onboarding-progress {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.onboarding-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.onboarding-dot:hover {
+  background: rgba(148, 163, 184, 0.6);
+  transform: scale(1.15);
+}
+
+.onboarding-dot.active {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.5);
+  transform: scale(1.1);
+}
+
+/* Navigation */
+.onboarding-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.onboarding-nav-right {
+  display: flex;
+  gap: 10px;
+}
+
+.onboarding-btn {
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.onboarding-btn.primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: none;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+}
+
+.onboarding-btn.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+}
+
+.onboarding-btn.secondary {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  color: #9ca3af;
+}
+
+.onboarding-btn.secondary:hover {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.6);
+  color: #e5e7eb;
+}
+
+.onboarding-btn.tertiary {
+  background: transparent;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #a5b4fc;
+}
+
+.onboarding-btn.tertiary:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.6);
+}
+
+/* Responsive */
+@media (max-width: 500px) {
+  .onboarding-modal {
+    padding: 24px 20px;
+    margin: 16px;
+  }
+
+  .onboarding-icon {
+    font-size: 44px;
+  }
+
+  .onboarding-title {
+    font-size: 18px;
+  }
+
+  .onboarding-description {
+    font-size: 14px;
+  }
+
+  .onboarding-nav {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .onboarding-nav-right {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .onboarding-btn {
+    flex: 1;
+    text-align: center;
+  }
+}

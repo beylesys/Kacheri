@@ -1,0 +1,15 @@
+{
+  "name": "beyle-kacheri",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev:api": "npm --prefix \"./KACHERI BACKEND\" run dev",
+    "dev:ws": "cross-env YPERSISTENCE=./data/yjs npx y-websocket",
+    "dev:web": "npm --prefix \"./KACHERI FRONTEND\" run dev",
+    "dev:all": "concurrently -n API,WS,WEB -c green,magenta,cyan \"npm:dev:api\" \"npm:dev:ws\" \"npm:dev:web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3"
+  }
+}

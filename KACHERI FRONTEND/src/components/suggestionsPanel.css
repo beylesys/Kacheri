@@ -1,0 +1,479 @@
+/* KACHERI FRONTEND/src/components/suggestionsPanel.css
+   Styles for SuggestionsPanel drawer and suggestion item components
+*/
+
+/* Main drawer panel */
+.suggestions-panel {
+  position: fixed;
+  top: 72px;
+  right: 0;
+  bottom: 16px;
+  width: 340px;
+  max-height: calc(100vh - 88px);
+  padding: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  z-index: 2000;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  transform: translateX(calc(100% + 16px));
+  opacity: 0.92;
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+}
+
+.suggestions-panel.open {
+  transform: translateX(-16px);
+  opacity: 1;
+}
+
+/* Header */
+.suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.suggestions-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.suggestions-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.suggestions-close:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Bulk actions */
+.suggestions-bulk-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.suggestions-bulk-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.suggestions-bulk-btn.accept-all {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--green-500);
+}
+
+.suggestions-bulk-btn.accept-all:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.25);
+}
+
+.suggestions-bulk-btn.reject-all {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--red-500);
+}
+
+.suggestions-bulk-btn.reject-all:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.suggestions-bulk-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Filter tabs */
+.suggestions-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.suggestions-tab-btn {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.suggestions-tab-btn:hover {
+  background: var(--panel-elev);
+  color: var(--text);
+}
+
+.suggestions-tab-btn.active {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+  color: #fff;
+}
+
+.suggestions-tab-count {
+  margin-left: 3px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+/* List container */
+.suggestions-list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 -14px;
+  padding: 0 14px;
+}
+
+.suggestions-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.suggestions-loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.suggestions-error {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fecaca;
+  font-size: 12px;
+}
+
+/* Individual suggestion item */
+.suggestion-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.suggestion-item:hover {
+  background: var(--panel-elev);
+  border-color: var(--border-hover);
+}
+
+.suggestion-item.selected {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.2);
+}
+
+.suggestion-item.accepted {
+  opacity: 0.7;
+  border-left: 3px solid var(--green-500);
+}
+
+.suggestion-item.rejected {
+  opacity: 0.7;
+  border-left: 3px solid var(--red-500);
+}
+
+.suggestion-item.pending {
+  border-left: 3px solid var(--yellow-500);
+}
+
+/* Suggestion header */
+.suggestion-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.suggestion-change-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.suggestion-change-badge.insert {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--green-500);
+}
+
+.suggestion-change-badge.delete {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--red-500);
+}
+
+.suggestion-change-badge.replace {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--blue-500);
+}
+
+.suggestion-status-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.suggestion-status-badge.pending {
+  background: rgba(234, 179, 8, 0.15);
+  color: var(--yellow-500);
+}
+
+.suggestion-status-badge.accepted {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--green-500);
+}
+
+.suggestion-status-badge.rejected {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--red-500);
+}
+
+/* Change preview */
+.suggestion-change-preview {
+  margin-bottom: 8px;
+}
+
+.suggestion-original-text,
+.suggestion-proposed-text {
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.suggestion-text-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.suggestion-text-content {
+  display: inline;
+  padding: 2px 4px;
+  border-radius: 3px;
+  word-break: break-word;
+}
+
+.suggestion-text-content.strikethrough {
+  text-decoration: line-through;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--red-400);
+}
+
+.suggestion-text-content.highlight {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--green-400);
+}
+
+/* Comment */
+.suggestion-comment {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--panel);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.suggestion-comment-icon {
+  margin-right: 6px;
+}
+
+/* Edit form */
+.suggestion-edit-form {
+  margin-bottom: 8px;
+}
+
+.suggestion-textarea {
+  width: 100%;
+  min-height: 50px;
+  max-height: 100px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.4;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.suggestion-textarea:focus {
+  border-color: var(--brand-500);
+}
+
+.suggestion-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* Meta info */
+.suggestion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.suggestion-author {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.suggestion-resolved-by {
+  font-style: italic;
+}
+
+/* Actions */
+.suggestion-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.suggestion-action-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.suggestion-action-btn:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.suggestion-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.suggestion-action-btn.accept {
+  color: var(--green-500);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.suggestion-action-btn.accept:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.suggestion-action-btn.reject {
+  color: var(--red-500);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.suggestion-action-btn.reject:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.suggestion-action-btn.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--red-500);
+}
+
+.suggestion-btn {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.suggestion-btn.primary {
+  background: var(--brand-600);
+  color: #fff;
+}
+
+.suggestion-btn.primary:hover:not(:disabled) {
+  background: var(--brand-700);
+}
+
+.suggestion-btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.suggestion-btn.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.suggestion-btn.ghost:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .suggestions-panel {
+    width: 100%;
+    max-width: 100%;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    top: auto;
+    height: 60vh;
+    max-height: 60vh;
+    border-radius: 12px 12px 0 0;
+    transform: translateY(100%);
+  }
+
+  .suggestions-panel.open {
+    transform: translateY(0);
+  }
+}

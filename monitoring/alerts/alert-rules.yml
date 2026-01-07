@@ -1,0 +1,134 @@
+# Kacheri Backend Prometheus Alert Rules
+# Place this file in your Prometheus rules directory
+
+groups:
+  - name: kacheri.rules
+    rules:
+      # High AI Error Rate
+      - alert: KacheriHighAIErrorRate
+        expr: |
+          (
+            sum(rate(kacheri_ai_requests_total{status="error"}[5m])) /
+            sum(rate(kacheri_ai_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "High AI operation error rate"
+          description: "AI error rate is above 5% for the last 5 minutes. Current: {{ $value | humanizePercentage }}"
+
+      # High Verification Failure Rate
+      - alert: KacheriHighVerificationFailureRate
+        expr: |
+          (
+            sum(rate(kacheri_verification_runs_total{status="fail"}[15m])) /
+            sum(rate(kacheri_verification_runs_total[15m]))
+          ) > 0.02
+        for: 15m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "High verification failure rate"
+          description: "Verification failure rate is above 2% for the last 15 minutes. Current: {{ $value | humanizePercentage }}"
+
+      # High AI Latency
+      - alert: KacheriHighAILatency
+        expr: |
+          histogram_quantile(0.99, rate(kacheri_ai_request_duration_seconds_bucket[10m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "High AI operation latency"
+          description: "AI p99 latency is above 5 seconds for the last 10 minutes. Current: {{ $value | humanizeDuration }}"
+
+      # WebSocket Connection Drop
+      - alert: KacheriWebSocketConnectionDrop
+        expr: |
+          delta(kacheri_active_websocket_connections[5m]) < -10
+        for: 1m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "WebSocket connections dropped significantly"
+          description: "More than 10 WebSocket connections dropped in the last 5 minutes. Delta: {{ $value }}"
+
+      # High HTTP Error Rate
+      - alert: KacheriHighHTTPErrorRate
+        expr: |
+          (
+            sum(rate(kacheri_http_requests_total{status_code=~"5.."}[5m])) /
+            sum(rate(kacheri_http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "High HTTP 5xx error rate"
+          description: "HTTP 5xx error rate is above 5% for the last 5 minutes. Current: {{ $value | humanizePercentage }}"
+
+      # High HTTP Latency
+      - alert: KacheriHighHTTPLatency
+        expr: |
+          histogram_quantile(0.99, rate(kacheri_http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "High HTTP request latency"
+          description: "HTTP p99 latency is above 2 seconds for the last 5 minutes. Current: {{ $value | humanizeDuration }}"
+
+      # Job Queue Backlog
+      - alert: KacheriJobQueueBacklog
+        expr: kacheri_jobs_total{status="pending"} > 100
+        for: 10m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "Job queue backlog growing"
+          description: "More than 100 pending jobs for the last 10 minutes. Current: {{ $value }}"
+
+      # Failed Jobs Accumulating
+      - alert: KacheriFailedJobsAccumulating
+        expr: kacheri_jobs_total{status="failed"} > 50
+        for: 30m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "Failed jobs accumulating"
+          description: "More than 50 failed jobs for the last 30 minutes. Current: {{ $value }}"
+
+      # Service Health Degraded
+      - alert: KacheriServiceDegraded
+        expr: probe_success{job="kacheri-health"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: kacheri-backend
+        annotations:
+          summary: "Kacheri service health check failing"
+          description: "Health check endpoint is returning non-200 for the last 1 minute."
+
+      # High Memory Usage
+      - alert: KacheriHighMemoryUsage
+        expr: |
+          (
+            process_resident_memory_bytes{job="kacheri-backend"} /
+            node_memory_MemTotal_bytes
+          ) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: kacheri-backend
+        annotations:
+          summary: "High memory usage"
+          description: "Process memory usage is above 80% for the last 10 minutes. Current: {{ $value | humanizePercentage }}"

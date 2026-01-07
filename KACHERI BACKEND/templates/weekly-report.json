@@ -1,0 +1,134 @@
+{
+  "id": "weekly-report",
+  "name": "Weekly Report",
+  "description": "Status updates, accomplishments, and blockers",
+  "icon": "calendar",
+  "category": "reporting",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": { "level": 1 },
+        "content": [{ "type": "text", "text": "Weekly Status Report" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Week of: " },
+          { "type": "text", "text": "[Enter date range]" }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "marks": [{ "type": "bold" }], "text": "Prepared by: " },
+          { "type": "text", "text": "[Your name]" }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Summary" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Brief overview of the week's progress and status." }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Accomplishments" }]
+      },
+      {
+        "type": "taskList",
+        "content": [
+          {
+            "type": "taskItem",
+            "attrs": { "checked": true },
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Completed task 1" }] }]
+          },
+          {
+            "type": "taskItem",
+            "attrs": { "checked": true },
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Completed task 2" }] }]
+          },
+          {
+            "type": "taskItem",
+            "attrs": { "checked": true },
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Completed task 3" }] }]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "In Progress" }]
+      },
+      {
+        "type": "taskList",
+        "content": [
+          {
+            "type": "taskItem",
+            "attrs": { "checked": false },
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Task in progress 1 - [% complete]" }] }]
+          },
+          {
+            "type": "taskItem",
+            "attrs": { "checked": false },
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Task in progress 2 - [% complete]" }] }]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Blockers & Challenges" }]
+      },
+      {
+        "type": "bulletList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Blocker 1: Description and impact" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Blocker 2: Description and impact" }] }]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Next Week's Priorities" }]
+      },
+      {
+        "type": "orderedList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Priority 1" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Priority 2" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Priority 3" }] }]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Notes & Comments" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Any additional notes or comments for stakeholders." }]
+      }
+    ]
+  }
+}

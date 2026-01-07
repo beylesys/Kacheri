@@ -1,0 +1,138 @@
+/* KACHERI FRONTEND/src/index.css */
+@import "./ui.css";
+
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Avenir,
+    Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  /* Let the system know we support both, actual theme is handled in ui.css */
+  color-scheme: light dark;
+
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Global reset-ish bits */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Let the app fill the viewport instead of being centered like the Vite starter */
+body {
+  /* Layout / colors are mainly driven by ui.css; we just avoid flex centering here */
+  background-color: inherit;
+  color: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Links */
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: none;
+}
+a:hover {
+  color: #535bf2;
+}
+
+/* Basic heading reset (detailed typography lives in ui.css) */
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+/* Base button reset; .button / .button.* variants are in ui.css */
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s, background-color 0.15s, transform 0.05s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 3px solid rgba(100, 108, 255, 0.6);
+  outline-offset: 2px;
+}
+
+/* Light-mode tweaks; dark theme details are handled by ui.css */
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+/* ────────────────────────────────────────────── */
+/* KACHERI DOCS: TipTap table styling            */
+/* ────────────────────────────────────────────── */
+
+/* Table element we configured in Editor.tsx via HTMLAttributes.class = "kacheri-table" */
+.kacheri-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+  font-size: 0.95rem;
+}
+
+/* Cells */
+.kacheri-table th,
+.kacheri-table td {
+  border: 1px solid rgba(148, 163, 184, 0.5); /* neutral slate-ish border */
+  padding: 6px 8px;
+  vertical-align: top;
+}
+
+/* Header row */
+.kacheri-table th {
+  background: rgba(148, 163, 184, 0.16);
+  font-weight: 600;
+  text-align: left;
+}
+
+/* Zebra striping for readability on long tables */
+.kacheri-table tbody tr:nth-child(even) {
+  background: rgba(148, 163, 184, 0.05);
+}
+
+/* Keep tables usable on small viewports */
+.tiptap {
+  overflow-x: auto;
+}
+
+.tiptap .kacheri-table {
+  max-width: 100%;
+}

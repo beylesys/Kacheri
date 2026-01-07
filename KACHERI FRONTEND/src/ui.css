@@ -1,0 +1,1901 @@
+/* ---------- Kacheri UI — design tokens & components ---------- */
+:root {
+  /* Colors */
+  --bg: #0b0f16;
+  --panel: #101625;
+  --panel-elev: #121b2e;
+  --surface: #0f1524;
+  --border: #1c2540;
+  --text: #e6eaf2;
+  --muted: #9aa4b2;
+  --brand-400: #9b7bff;
+  --brand-500: #7c5cff;
+  --brand-600: #6a4efe;
+  --brand-700: #5a43e8;
+  --green-500: #22c55e;
+  --red-500: #ef4444;
+  --yellow-500: #f59e0b;
+
+  /* Typography */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+
+  /* Sizing */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.28);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  /* Unified calm canvas - single neutral gray, no competing backgrounds */
+  background: #e8e8ec;
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Layout helpers */
+.container {
+  max-width: 1080px;
+  padding: 28px 20px;
+  margin: 0 auto;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.spacer {
+  flex: 1;
+}
+
+/* Typography */
+.h1 {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 8px;
+}
+.h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.muted {
+  color: var(--muted);
+}
+.kicker {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* Surfaces */
+.surface {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0))
+    var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+
+/* Toolbar (sticky header) - MS Word / Google Docs style */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(14, 20, 35, 0.85), rgba(14, 20, 35, 0.75));
+  border-bottom: 1px solid var(--border);
+}
+.toolbar-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 14px 20px;
+}
+
+/* Toolbar button sizing for readability */
+.toolbar .button.sm {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+/* Toolbar icon buttons (B/I/U/S, alignment) */
+.toolbar .button.sm[style*="minWidth: 32"] {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+
+/* Toolbar select dropdowns */
+.toolbar .input.sm {
+  min-height: 32px;
+  font-size: 13px;
+  padding: 4px 8px;
+}
+
+/* Inputs */
+.input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.input::placeholder {
+  color: var(--muted);
+}
+.input:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.2);
+}
+.input.sm {
+  padding: 8px 10px;
+}
+
+/* Buttons */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    transform 0.04s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.button:hover {
+  transform: translateY(-1px);
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.button.primary {
+  background: linear-gradient(180deg, var(--brand-500), var(--brand-600));
+  border-color: rgba(0, 0, 0, 0.2);
+  color: white;
+}
+.button.primary:hover {
+  background: linear-gradient(180deg, var(--brand-600), var(--brand-700));
+}
+.button.ghost {
+  background: transparent;
+  border-color: var(--border);
+}
+.button.subtle {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.button.danger {
+  background: linear-gradient(180deg, #ef4444, #dc2626);
+  color: white;
+}
+.button.sm {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+}
+
+/* Tiny utility buttons (used in sidebar cards like TOC) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.04s ease;
+}
+.btn:hover {
+  background: var(--panel-elev);
+  transform: translateY(-1px);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.btn-xs {
+  padding: 2px 8px;
+  height: 24px;
+  font-size: 11px;
+}
+
+/* Search */
+.search {
+  position: relative;
+}
+.search .input {
+  padding-left: 36px;
+}
+.search .icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.6;
+}
+
+/* Lists */
+.list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: var(--space-5);
+}
+@media (min-width: 780px) {
+  .list {
+    gap: 12px;
+  }
+}
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition:
+    background 0.15s ease,
+    transform 0.04s ease,
+    border-color 0.15s ease;
+}
+.list-item:hover {
+  background: var(--panel-elev);
+  transform: translateY(-1px);
+}
+.list-item .title {
+  font-weight: 600;
+}
+.list-item .meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+.list-item .actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* Badges */
+.badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.badge.green {
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}
+.badge.red {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+.badge.yellow {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+/* Cards */
+.card {
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+
+/* Sidebar cards (Outline, ToC, etc.) */
+.sidebar-card {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+.sidebar-card.toc-card {
+  font-size: 13px;
+}
+.sidebar-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.sidebar-card-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.sidebar-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-card-error {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.6);
+  color: #fecaca;
+}
+.sidebar-card-empty {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Table of contents preview list (sidebar) */
+.toc-preview {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.toc-preview-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.toc-preview-item.toc-level-2 {
+  padding-left: 10px;
+}
+.toc-preview-item.toc-level-3 {
+  padding-left: 18px;
+  font-size: 11.5px;
+}
+.toc-preview-item.toc-level-4 {
+  padding-left: 24px;
+  font-size: 11.5px;
+  opacity: 0.9;
+}
+.toc-preview-bullet {
+  width: 10px;
+  flex-shrink: 0;
+  margin-top: 4px;
+  opacity: 0.6;
+}
+.toc-preview-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Editor styles wrapper — Google Docs / Word style layout */
+.editor-shell {
+  /* Page layout CSS variables - updated dynamically via inline styles */
+  --page-width: 210mm;      /* A4 default */
+  --page-height: 297mm;     /* A4 default */
+  --page-margin-top: 24mm;
+  --page-margin-bottom: 24mm;
+  --page-margin-left: 24mm;
+  --page-margin-right: 24mm;
+  /* Page height in pixels for visual page breaks (~11 inches at 96dpi) */
+  --page-height-px: 1056px;
+
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  flex: 1;
+  min-height: calc(100vh - 140px);
+  /* Transparent - inherits from unified canvas background */
+  background: transparent;
+  padding: 24px 40px;
+  overflow-y: auto;
+}
+
+/* The white editor canvas - the document page */
+.tiptap {
+  position: relative;
+  background: #ffffff;
+  color: #0b0f16;
+  /* No rounded corners - professional document look */
+  border-radius: 0;
+  /* Subtle shadow and hairline border - page is present but not screaming */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  /* Use CSS variables for padding (margins) */
+  padding-top: var(--page-margin-top);
+  padding-bottom: var(--page-margin-bottom);
+  padding-left: var(--page-margin-left);
+  padding-right: var(--page-margin-right);
+  /* Fixed width for document feel - US Letter */
+  width: 816px;
+  max-width: calc(100vw - 80px);
+  /* Minimum height - one page */
+  min-height: var(--page-height-px);
+}
+
+/* Visual page break indicator in editor (shows where pages will break) */
+.tiptap .ProseMirror {
+  /* Use repeating gradient to show page boundaries */
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--page-height-px) - 2px),
+      #e2e8f0 calc(var(--page-height-px) - 2px),
+      #e2e8f0 var(--page-height-px)
+    );
+  background-position: 0 calc(var(--page-margin-top) * -1);
+}
+
+/* ==========================================================================
+   PAGE HEADERS & FOOTERS — Document header/footer zones
+   ========================================================================== */
+
+/* Header zone - displays at top of page inside margins */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.15);
+  margin-bottom: 16px;
+  flex-shrink: 0;
+  /* Allow rich text formatting */
+  text-align: center;
+}
+
+.page-header b,
+.page-header strong {
+  font-weight: 600;
+}
+
+.page-header i,
+.page-header em {
+  font-style: italic;
+}
+
+/* Footer zone - displays at bottom of page inside margins */
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px dashed rgba(0, 0, 0, 0.15);
+  margin-top: 16px;
+  flex-shrink: 0;
+  gap: 4px;
+  /* Allow rich text formatting */
+  text-align: center;
+}
+
+.page-footer b,
+.page-footer strong {
+  font-weight: 600;
+}
+
+.page-footer i,
+.page-footer em {
+  font-style: italic;
+}
+
+/* Page number placeholder in footer */
+.page-number-placeholder {
+  opacity: 0.7;
+  font-size: 10px;
+}
+
+/* Print styles for headers/footers */
+@media print {
+  .page-header,
+  .page-footer {
+    /* Remove dashed indicator borders in print */
+    border: none;
+    /* Keep visible in print */
+    visibility: visible !important;
+    display: flex !important;
+  }
+
+  .page-number-placeholder {
+    /* Hide placeholder in print - real page numbers come from PDF/DOCX */
+    display: none;
+  }
+}
+
+/* Proofs panel */
+.proofs {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+}
+
+/* ==========================================================================
+   EDITOR LAYOUT — Calm/Pro Layout with Drawers
+   ========================================================================== */
+
+/* Main layout container */
+.editor-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  /* Transparent - inherits from unified body canvas */
+  background: transparent;
+}
+
+/* Unified header zone - toolbar within editor layout */
+.editor-layout .toolbar {
+  /* Same background as topbar for unified look */
+  background: var(--panel);
+  border-top: none;
+  /* Single border at the bottom of the unified header */
+  border-bottom: 1px solid var(--border);
+}
+
+/* Top Compose/Prompt Bar */
+.editor-topbar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  background: var(--panel);
+  /* No border - unified with toolbar below */
+  border-bottom: none;
+  flex-shrink: 0;
+}
+
+.editor-topbar-input {
+  flex: 1;
+  max-width: 600px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.editor-topbar-input::placeholder {
+  color: var(--muted);
+}
+
+.editor-topbar-input:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.15);
+  outline: none;
+}
+
+/* Main content area (with drawers) */
+.editor-main {
+  display: flex;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Center document area */
+.editor-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-y: auto;
+  padding: 20px 40px;
+  /* Transparent - inherits from unified canvas */
+  background: transparent;
+  /* Relative positioning for floating status badge */
+  position: relative;
+}
+
+/* Drawer scrim - subtle overlay when drawer is open */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.15);
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.drawer-scrim.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Drawer common styles */
+.drawer-left,
+.drawer-right {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 300px;
+  /* Lighter, semi-transparent background for calmer feel */
+  background: rgba(255, 255, 255, 0.97);
+  /* Shadow instead of hard border */
+  border: none;
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  overflow-y: auto;
+  transition: transform 180ms ease;
+}
+
+.drawer-left {
+  left: 0;
+  transform: translateX(-100%);
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.drawer-left.is-open {
+  transform: translateX(0);
+}
+
+.drawer-right {
+  right: 0;
+  transform: translateX(100%);
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.drawer-right.is-open {
+  transform: translateX(0);
+}
+
+/* Drawer toggle buttons */
+.drawer-toggle {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 60px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  z-index: 101;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.drawer-toggle:hover {
+  background: var(--panel-elev);
+  color: var(--text);
+}
+
+.drawer-toggle-left {
+  left: 0;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+}
+
+.drawer-toggle-right {
+  right: 0;
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+}
+
+/* Drawer header */
+.drawer-header {
+  padding: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.drawer-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.drawer-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: #64748b;
+  font-size: 16px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.drawer-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1e293b;
+}
+
+/* Drawer content area */
+.drawer-content {
+  padding: 16px;
+}
+
+/* Right drawer tabs */
+.drawer-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.drawer-tab {
+  flex: 1;
+  padding: 10px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.drawer-tab.active {
+  color: var(--brand-500);
+  border-bottom-color: var(--brand-500);
+}
+
+.drawer-tab:hover:not(.active) {
+  color: #1e293b;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+/* Formatting toolbar inside left drawer */
+.drawer-formatting-group {
+  margin-bottom: 16px;
+}
+
+.drawer-formatting-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.drawer-formatting-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Panel overrides when inside right drawer */
+.drawer-right #proofs-panel,
+.drawer-right .comments-panel,
+.drawer-right .versions-panel,
+.drawer-right .suggestions-panel,
+.drawer-right .backlinks-panel {
+  position: static !important;
+  transform: none !important;
+  width: 100% !important;
+  max-height: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+/* Realtime status styling - floating badge below document */
+.realtime-status {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  padding: 3px 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  z-index: 10;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+}
+
+.realtime-status code {
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.15);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Editor content wrapper (inside Editor.tsx) */
+.editor-content {
+  flex: 1;
+}
+
+/* Ensure editor-shell works within the new layout */
+.editor-layout .editor-shell {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Spacer utility for flexbox layouts */
+.spacer {
+  flex: 1;
+}
+
+/* Empty state */
+.empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* Editor status banner */
+.editor-banner {
+  max-width: 1100px;
+  margin: 8px auto 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.editor-banner-info {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.6);
+}
+
+.editor-banner-error {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.7);
+}
+
+.editor-banner-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  opacity: 0.7;
+}
+.editor-banner-close:hover {
+  opacity: 1;
+}
+
+/* Simple centered modal for editor actions */
+.editor-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.editor-modal {
+  width: 100%;
+  max-width: 420px;
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 16px 18px 14px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+}
+
+.editor-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.editor-modal-description {
+  font-size: 13px;
+  opacity: 0.8;
+  margin-bottom: 10px;
+}
+
+.editor-modal-error {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #fecaca;
+}
+
+.editor-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ------------------------------------------------------------------
+   TIPTAP / PROSEMIRROR CONTENT STYLES
+   Makes imported docs + tables look like real documents.
+-------------------------------------------------------------------*/
+
+/* Root editor content */
+.tiptap .ProseMirror {
+  outline: none;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+/* Paragraphs */
+.tiptap .ProseMirror p {
+  margin: 0 0 0.5em;
+}
+
+/* Headings */
+.tiptap .ProseMirror h1,
+.tiptap .ProseMirror h2,
+.tiptap .ProseMirror h3,
+.tiptap .ProseMirror h4,
+.tiptap .ProseMirror h5,
+.tiptap .ProseMirror h6 {
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.1em 0 0.4em;
+}
+.tiptap .ProseMirror h1 {
+  font-size: 2rem;
+}
+.tiptap .ProseMirror h2 {
+  font-size: 1.6rem;
+}
+.tiptap .ProseMirror h3 {
+  font-size: 1.3rem;
+}
+.tiptap .ProseMirror h4 {
+  font-size: 1.1rem;
+}
+
+/* Lists */
+.tiptap .ProseMirror ul,
+.tiptap .ProseMirror ol {
+  padding-left: 1.6em;
+  margin: 0 0 0.6em;
+}
+.tiptap .ProseMirror ul {
+  list-style-type: disc;
+}
+.tiptap .ProseMirror ol {
+  list-style-type: decimal;
+}
+.tiptap .ProseMirror li {
+  margin: 0.12em 0;
+}
+
+/* ==========================================================================
+   MULTI-LEVEL LIST STYLES
+   ========================================================================== */
+
+/* Multi-level bullet styles: disc → circle → square */
+.tiptap .ProseMirror ul ul {
+  list-style-type: circle;
+}
+.tiptap .ProseMirror ul ul ul {
+  list-style-type: square;
+}
+
+/* Multi-level numbered list styles: 1,2,3 → a,b,c → i,ii,iii */
+.tiptap .ProseMirror ol ol {
+  list-style-type: lower-alpha;
+}
+.tiptap .ProseMirror ol ol ol {
+  list-style-type: lower-roman;
+}
+
+/* ==========================================================================
+   LEGAL-STYLE OUTLINE NUMBERING (1.1, 1.2, 1.1.1)
+   ========================================================================== */
+
+.tiptap .ProseMirror ol.legal-numbering {
+  list-style: none;
+  counter-reset: level1;
+  padding-left: 0;
+}
+
+.tiptap .ProseMirror ol.legal-numbering > li {
+  counter-increment: level1;
+  position: relative;
+  padding-left: 2em;
+}
+
+.tiptap .ProseMirror ol.legal-numbering > li::before {
+  content: counter(level1) ". ";
+  position: absolute;
+  left: 0;
+  font-weight: 500;
+}
+
+/* Level 2: 1.1, 1.2, etc. */
+.tiptap .ProseMirror ol.legal-numbering ol {
+  list-style: none;
+  counter-reset: level2;
+  padding-left: 0;
+}
+
+.tiptap .ProseMirror ol.legal-numbering ol > li {
+  counter-increment: level2;
+  position: relative;
+  padding-left: 2.5em;
+}
+
+.tiptap .ProseMirror ol.legal-numbering ol > li::before {
+  content: counter(level1) "." counter(level2) " ";
+  position: absolute;
+  left: 0;
+  font-weight: 500;
+}
+
+/* Level 3: 1.1.1, 1.1.2, etc. */
+.tiptap .ProseMirror ol.legal-numbering ol ol {
+  list-style: none;
+  counter-reset: level3;
+  padding-left: 0;
+}
+
+.tiptap .ProseMirror ol.legal-numbering ol ol > li {
+  counter-increment: level3;
+  position: relative;
+  padding-left: 3em;
+}
+
+.tiptap .ProseMirror ol.legal-numbering ol ol > li::before {
+  content: counter(level1) "." counter(level2) "." counter(level3) " ";
+  position: absolute;
+  left: 0;
+  font-weight: 500;
+}
+
+/* Inline table-of-contents block inside the document */
+.tiptap .toc-block {
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  padding: 10px 12px;
+  margin: 0 0 1.1em;
+}
+.tiptap .toc-title {
+  margin: 0 0 0.4em;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: #4b5563;
+}
+.tiptap .toc-list {
+  margin: 0;
+  padding-left: 1.4em;
+  list-style-type: disc;
+  font-size: 0.9rem;
+}
+.tiptap .toc-item {
+  margin: 0.08em 0;
+}
+.tiptap .toc-item.toc-level-2 {
+  padding-left: 0.6em;
+}
+.tiptap .toc-item.toc-level-3 {
+  padding-left: 1em;
+}
+.tiptap .toc-item.toc-level-4 {
+  padding-left: 1.4em;
+}
+
+/* Blockquotes */
+.tiptap .ProseMirror blockquote {
+  border-left: 3px solid #d1d5db;
+  margin: 0.9em 0;
+  padding: 0.4em 0.9em;
+  color: #4b5563;
+  background: #f9fafb;
+}
+
+/* Horizontal rule */
+.tiptap .ProseMirror hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1.5em 0;
+}
+
+/* Inline code */
+.tiptap .ProseMirror code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: #f3f4f6;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+/* Code blocks */
+.tiptap .ProseMirror pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: #020617;
+  color: #e5e7eb;
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.9em 0;
+}
+
+/* Links inside editor */
+.tiptap .ProseMirror a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+.tiptap .ProseMirror a:hover {
+  text-decoration: none;
+}
+
+/* ========================== */
+/* Enhanced Images with Resize, Align, Caption */
+/* ========================== */
+
+/* NodeView wrapper */
+.kacheri-image-wrapper {
+  display: block;
+  clear: both;
+}
+
+.kacheri-image-wrapper[data-align="left"] {
+  float: left;
+  margin: 0.5em 1.5em 0.5em 0;
+  clear: left;
+}
+
+.kacheri-image-wrapper[data-align="center"] {
+  display: flex;
+  justify-content: center;
+  margin: 1em 0;
+}
+
+.kacheri-image-wrapper[data-align="right"] {
+  float: right;
+  margin: 0.5em 0 0.5em 1.5em;
+  clear: right;
+}
+
+/* Figure element */
+.tiptap .ProseMirror figure.kacheri-image {
+  margin: 0;
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* Image container with resize handles */
+.tiptap .ProseMirror .image-container {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.tiptap .ProseMirror .image-container img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.tiptap .ProseMirror .image-container.selected {
+  outline: 2px solid #4c6ef5;
+  outline-offset: 2px;
+}
+
+.tiptap .ProseMirror .image-container.resizing {
+  cursor: se-resize;
+}
+
+/* Resize handle */
+.tiptap .ProseMirror .image-resize-handle {
+  position: absolute;
+  bottom: -6px;
+  right: -6px;
+  width: 14px;
+  height: 14px;
+  background: #4c6ef5;
+  border: 2px solid #fff;
+  border-radius: 3px;
+  cursor: se-resize;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.tiptap .ProseMirror .image-resize-handle:hover {
+  background: #364fc7;
+  transform: scale(1.1);
+}
+
+/* Caption */
+.tiptap .ProseMirror figure.kacheri-image figcaption {
+  text-align: center;
+  font-size: 0.875em;
+  color: #666;
+  margin-top: 8px;
+  font-style: italic;
+  line-height: 1.4;
+  padding: 0 4px;
+  min-height: 1.4em;
+}
+
+.tiptap .ProseMirror figure.kacheri-image figcaption:focus {
+  outline: none;
+  background: rgba(76, 110, 245, 0.1);
+  border-radius: 4px;
+}
+
+.tiptap .ProseMirror figure.kacheri-image figcaption.empty::before {
+  content: attr(data-placeholder);
+  color: #999;
+  pointer-events: none;
+}
+
+/* Clear floats after aligned images */
+.tiptap .ProseMirror .kacheri-image-wrapper + p,
+.tiptap .ProseMirror .kacheri-image-wrapper + h1,
+.tiptap .ProseMirror .kacheri-image-wrapper + h2,
+.tiptap .ProseMirror .kacheri-image-wrapper + h3,
+.tiptap .ProseMirror .kacheri-image-wrapper + h4,
+.tiptap .ProseMirror .kacheri-image-wrapper + h5,
+.tiptap .ProseMirror .kacheri-image-wrapper + h6 {
+  clear: both;
+}
+
+/* Fallback for plain img tags */
+.tiptap .ProseMirror img:not(.kacheri-image img) {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.5em auto;
+}
+
+/* ==========================================================================
+   PAGE BREAK
+   ========================================================================== */
+
+.tiptap .ProseMirror .kacheri-page-break {
+  position: relative;
+  margin: 2em 0;
+  border: none;
+  height: 0;
+  page-break-after: always;
+  break-after: page;
+}
+
+.tiptap .ProseMirror .kacheri-page-break::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 2px dashed #d1d5db;
+}
+
+.tiptap .ProseMirror .kacheri-page-break::after {
+  content: "Page Break";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  padding: 2px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+/* Selected state */
+.tiptap .ProseMirror .kacheri-page-break.ProseMirror-selectednode::after {
+  border-color: #4c6ef5;
+  color: #4c6ef5;
+  background: #eef2ff;
+}
+
+/* ==========================================================================
+   SECTION BREAK
+   ========================================================================== */
+
+.tiptap .ProseMirror .kacheri-section-break {
+  position: relative;
+  margin: 2em 0;
+  border: none;
+  height: 0;
+}
+
+.tiptap .ProseMirror .kacheri-section-break::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 2px dotted #e5e7eb;
+}
+
+.tiptap .ProseMirror .kacheri-section-break::after {
+  content: "Section Break";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  padding: 2px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+}
+
+/* Selected state */
+.tiptap .ProseMirror .kacheri-section-break.ProseMirror-selectednode::after {
+  border-color: #4c6ef5;
+  color: #4c6ef5;
+  background: #eef2ff;
+}
+
+/* ==========================================================================
+   COLUMN SECTION
+   ========================================================================== */
+
+.tiptap .ProseMirror .kacheri-columns {
+  position: relative;
+  border: 1px dashed #e5e7eb;
+  border-radius: 6px;
+  padding: 1em;
+  margin: 1em 0;
+  min-height: 3em;
+}
+
+/* Column label */
+.tiptap .ProseMirror .kacheri-columns::before {
+  content: attr(data-columns) " Columns";
+  position: absolute;
+  top: -10px;
+  left: 12px;
+  background: #fff;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Single column (default) */
+.tiptap .ProseMirror .kacheri-columns[data-columns="1"] {
+  column-count: 1;
+}
+
+/* Two columns */
+.tiptap .ProseMirror .kacheri-columns[data-columns="2"] {
+  column-count: 2;
+  column-gap: 2em;
+  column-rule: 1px solid #e5e7eb;
+}
+
+/* Prevent orphans in columns */
+.tiptap .ProseMirror .kacheri-columns > * {
+  break-inside: avoid;
+}
+
+/* ==========================================================================
+   PRINT STYLES
+   Robust print isolation - hide ALL UI, show only document content
+   ========================================================================== */
+
+@media print {
+  /* Hide UI elements explicitly */
+  .toolbar,
+  header.toolbar,
+  .proofs,
+  .drawer-left,
+  .drawer-right,
+  .editor-topbar,
+  .drawer-toggle,
+  .drawer-toggle-left,
+  .drawer-toggle-right,
+  .comments-panel,
+  .versions-panel,
+  .suggestions-panel,
+  .backlinks-panel,
+  .bk-modal,
+  .command-palette,
+  .editor-layout > .toolbar,
+  .realtime-status {
+    display: none !important;
+  }
+
+  /* Reset backgrounds to white */
+  html,
+  body {
+    background: white !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Editor layout should not constrain height */
+  .editor-layout {
+    background: white !important;
+    min-height: auto !important;
+    height: auto !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  .editor-main {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .editor-center {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+
+  .editor-shell {
+    background: white !important;
+    padding: 0 !important;
+    min-height: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  /* Document content - use static positioning to allow full height */
+  .tiptap {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    min-height: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    /* Use standard print margins */
+    padding: 0.5in 0.75in !important;
+  }
+
+  /* Remove ProseMirror background guides/gradients */
+  .tiptap .ProseMirror {
+    background: none !important;
+    color: black !important;
+    max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Page breaks - hide visual indicator, keep break behavior */
+  .tiptap .ProseMirror .kacheri-page-break {
+    page-break-after: always !important;
+    break-after: page !important;
+    margin: 0;
+    height: 0;
+  }
+
+  .tiptap .ProseMirror .kacheri-page-break::before,
+  .tiptap .ProseMirror .kacheri-page-break::after {
+    display: none !important;
+  }
+
+  .tiptap .ProseMirror .kacheri-section-break {
+    margin: 0;
+    height: 0;
+  }
+
+  .tiptap .ProseMirror .kacheri-section-break::before,
+  .tiptap .ProseMirror .kacheri-section-break::after {
+    display: none !important;
+  }
+
+  .tiptap .ProseMirror .kacheri-columns {
+    border: none;
+    padding: 0;
+  }
+
+  .tiptap .ProseMirror .kacheri-columns::before {
+    display: none !important;
+  }
+
+  /* Hide doc link icons in print */
+  .tiptap .ProseMirror .kacheri-doc-link::before {
+    display: none !important;
+  }
+}
+
+/* Table wrapper from TipTap's table extension */
+.tiptap .tableWrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* Base table styling (covers imported tables too) */
+.tiptap .ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  table-layout: auto;
+}
+
+/* Kacheri-specific table styling */
+.tiptap .ProseMirror table.kacheri-table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Cells */
+.tiptap .ProseMirror table th,
+.tiptap .ProseMirror table td {
+  border: 1px solid #e5e7eb;
+  padding: 8px 10px;
+  font-size: 14px;
+  vertical-align: top;
+}
+
+/* Header row */
+.tiptap .ProseMirror table th,
+.tiptap .ProseMirror table thead td {
+  background: #f3f4f6;
+  font-weight: 600;
+  text-align: left;
+}
+
+/* Zebra striping for readability */
+.tiptap .ProseMirror table tbody tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+/* Selected cells (TipTap table selection) */
+.tiptap .ProseMirror .selectedCell {
+  background-color: rgba(37, 99, 235, 0.08);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.5) inset;
+}
+
+/* Tighten spacing around last elements */
+.tiptap .ProseMirror > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Responsive tweaks for smaller screens */
+@media (max-width: 768px) {
+  .container {
+    padding-inline: 16px;
+  }
+
+  .editor-shell {
+    padding: 12px 8px;
+    min-height: auto;
+  }
+
+  .tiptap {
+    width: 100%;
+    max-width: 100%;
+    padding: 18px 14px;
+    min-height: 60vh;
+    border-radius: 0;
+  }
+
+  .tiptap .ProseMirror {
+    max-width: 100%;
+    /* Disable page break lines on mobile */
+    background: none;
+  }
+}
+
+/* ------------------------------------------------------------------
+   PDF VIEWER STYLES
+   Styles for the PDF viewer component and import modal
+-------------------------------------------------------------------*/
+
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.pdf-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+.pdf-canvas-container {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 16px;
+  background: #e5e7eb;
+}
+
+.pdf-canvas {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: #fff;
+  max-width: 100%;
+  height: auto;
+}
+
+/* ------------------------------------------------------------------
+   PDF IMPORT FIELD HIGHLIGHTING
+   Color-coded highlighting for detected fields in PDF imports
+-------------------------------------------------------------------*/
+
+/* Date fields - blue */
+.field-highlight-date,
+[data-field-type="date"] {
+  background: #dbeafe !important;
+  padding: 1px 3px;
+  border-radius: 2px;
+  color: #1e40af;
+}
+
+/* Name fields - yellow/amber */
+.field-highlight-name,
+[data-field-type="name"] {
+  background: #fef3c7 !important;
+  padding: 1px 3px;
+  border-radius: 2px;
+  color: #92400e;
+}
+
+/* Amount fields - green */
+.field-highlight-amount,
+[data-field-type="amount"] {
+  background: #dcfce7 !important;
+  padding: 1px 3px;
+  border-radius: 2px;
+  color: #166534;
+}
+
+/* Custom/other fields - purple */
+.field-highlight-custom,
+[data-field-type="custom"] {
+  background: #f3e8ff !important;
+  padding: 1px 3px;
+  border-radius: 2px;
+  color: #6b21a8;
+}
+
+/* Field badge in modal */
+.field-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+/* Editable content area in PDF import modal */
+.pdf-import-editable {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fff;
+  line-height: 1.6;
+  outline: none;
+}
+
+.pdf-import-editable:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.2);
+}
+
+/* Headings in extracted text */
+.pdf-import-editable h1,
+.pdf-import-editable h2,
+.pdf-import-editable h3,
+.pdf-import-editable h4 {
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1em 0 0.4em;
+  color: #1e293b;
+}
+
+.pdf-import-editable h1 {
+  font-size: 1.75rem;
+}
+.pdf-import-editable h2 {
+  font-size: 1.4rem;
+}
+.pdf-import-editable h3 {
+  font-size: 1.15rem;
+}
+
+.pdf-import-editable p {
+  margin: 0 0 0.6em;
+}
+
+/* ------------------------------------------------------------------
+   COMMENT HIGHLIGHTING
+   Highlight styles for text ranges associated with comments
+-------------------------------------------------------------------*/
+
+/* Base comment highlight - subtle background */
+.comment-highlight {
+  background: rgba(106, 78, 254, 0.12);
+  border-bottom: 2px solid var(--brand-400);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.comment-highlight:hover {
+  background: rgba(106, 78, 254, 0.2);
+}
+
+/* Active/focused comment highlight */
+.comment-highlight-active {
+  background: rgba(106, 78, 254, 0.25);
+  border-bottom-color: var(--brand-600);
+}
+
+/* Resolved comment highlight - more muted */
+.comment-highlight-resolved {
+  background: rgba(156, 163, 175, 0.1);
+  border-bottom: 1px dashed #9ca3af;
+}
+
+/* Selection highlight when adding a comment */
+.comment-selection-preview {
+  background: rgba(106, 78, 254, 0.18);
+  outline: 2px solid var(--brand-500);
+  outline-offset: 1px;
+}
+
+/* ==========================================================================
+   DOC LINKS (Cross-document references)
+   ========================================================================== */
+
+.tiptap .ProseMirror .kacheri-doc-link {
+  color: var(--brand-500);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--brand-400);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.tiptap .ProseMirror .kacheri-doc-link:hover {
+  color: var(--brand-400);
+  text-decoration-style: solid;
+  text-decoration-color: var(--brand-500);
+}
+
+/* Doc link with document icon prefix */
+.tiptap .ProseMirror .kacheri-doc-link::before {
+  content: "\1F4C4"; /* 📄 document emoji */
+  font-size: 0.85em;
+  margin-right: 2px;
+  text-decoration: none;
+  display: inline;
+}
+
+/* Focused/selected doc link */
+.tiptap .ProseMirror .kacheri-doc-link.ProseMirror-selectednode,
+.tiptap .ProseMirror .kacheri-doc-link:focus {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

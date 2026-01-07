@@ -1,0 +1,21 @@
+{
+  "id": "blank",
+  "name": "Blank Document",
+  "description": "Start with an empty document",
+  "icon": "file",
+  "category": "basic",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": { "level": 1 },
+        "content": [{ "type": "text", "text": "Untitled Document" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Start writing here..." }]
+      }
+    ]
+  }
+}

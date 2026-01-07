@@ -1,0 +1,111 @@
+{
+  "id": "prd",
+  "name": "Product Requirements Document",
+  "description": "Document product requirements and specifications",
+  "icon": "clipboard-list",
+  "category": "product",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": { "level": 1 },
+        "content": [{ "type": "text", "text": "Product Requirements Document" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Overview" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Provide a brief summary of the product and its purpose." }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Goals & Objectives" }]
+      },
+      {
+        "type": "bulletList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Goal 1: Describe the primary goal" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Goal 2: Describe secondary goals" }] }]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "User Stories" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "As a [user type], I want to [action] so that [benefit]." }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Functional Requirements" }]
+      },
+      {
+        "type": "orderedList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Requirement 1: Description" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Requirement 2: Description" }] }]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Non-Functional Requirements" }]
+      },
+      {
+        "type": "bulletList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Performance: Response time, throughput expectations" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Security: Authentication, authorization requirements" }] }]
+          },
+          {
+            "type": "listItem",
+            "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Scalability: Expected growth and capacity needs" }] }]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Timeline" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Outline key milestones and delivery dates." }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Success Metrics" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Define how success will be measured for this product." }]
+      }
+    ]
+  }
+}
