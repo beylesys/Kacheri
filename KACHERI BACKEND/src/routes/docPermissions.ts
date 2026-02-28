@@ -2,7 +2,7 @@
 // REST endpoints for document-level permissions management.
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import {
   type DocRole,
   isValidDocRole,
@@ -22,7 +22,7 @@ import {
 import { createNotification } from '../store/notifications';
 import { broadcastToUser } from '../realtime/globalHub';
 
-export function createDocPermissionRoutes(db: Database) {
+export function createDocPermissionRoutes(db: DbAdapter) {
   return async function docPermissionRoutes(app: FastifyInstance) {
     // Helper to get user ID from request
     function requireUser(req: FastifyRequest, reply: FastifyReply): string | null {
@@ -35,13 +35,13 @@ export function createDocPermissionRoutes(db: Database) {
     }
 
     // Helper to check doc access and set req.docRole
-    function checkDocAccess(
+    async function checkDocAccess(
       req: FastifyRequest,
       reply: FastifyReply,
       docId: string,
       requiredRole: DocRole
-    ): boolean {
-      const role = getEffectiveDocRole(db, docId, req);
+    ): Promise<boolean> {
+      const role = await getEffectiveDocRole(db, docId, req);
       if (!role) {
         reply.code(403).send({ error: 'Access denied' });
         return false;
@@ -68,13 +68,13 @@ export function createDocPermissionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Get user's role
-        const role = getEffectiveDocRole(db, docId, req);
+        const role = await getEffectiveDocRole(db, docId, req);
         if (!role) {
           return reply.code(403).send({ error: 'Access denied' });
         }
@@ -82,14 +82,14 @@ export function createDocPermissionRoutes(db: Database) {
         // If owner, return all permissions + workspaceAccess setting
         // Otherwise, return only their own permission
         if (hasDocPermission(role, 'owner')) {
-          const permissions = listDocPermissions(docId);
+          const permissions = await listDocPermissions(docId);
           return {
             permissions,
             workspaceAccess: doc.workspaceAccess ?? null,
           };
         } else {
           // Non-owners can only see their own permission
-          const ownPerm = getDocPermission(docId, userId);
+          const ownPerm = await getDocPermission(docId, userId);
           if (ownPerm) {
             return {
               permissions: [{
@@ -132,13 +132,13 @@ export function createDocPermissionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check actor has editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId, 'editor')) return;
 
         const body = req.body ?? {};
         const targetUserId = (body.userId ?? '').toString().trim();
@@ -157,7 +157,7 @@ export function createDocPermissionRoutes(db: Database) {
         }
 
         // Check if user already has permission
-        const existingPerm = getDocPermission(docId, targetUserId);
+        const existingPerm = await getDocPermission(docId, targetUserId);
         if (existingPerm) {
           return reply.code(409).send({
             error: 'User already has permission on this document',
@@ -166,7 +166,7 @@ export function createDocPermissionRoutes(db: Database) {
         }
 
         try {
-          const permission = grantDocPermission(docId, targetUserId, role, actorId);
+          const permission = await grantDocPermission(docId, targetUserId, role, actorId);
 
           // Log audit event if doc is workspace-scoped
           if (doc.workspaceId) {
@@ -181,7 +181,7 @@ export function createDocPermissionRoutes(db: Database) {
 
             // Create notification for the user who was granted access
             if (targetUserId !== actorId) {
-              const notification = createNotification({
+              const notification = await createNotification({
                 userId: targetUserId,
                 workspaceId: doc.workspaceId,
                 type: 'doc_shared',
@@ -230,13 +230,13 @@ export function createDocPermissionRoutes(db: Database) {
         const targetUserId = req.params.userId;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Only owners can update permissions
-        if (!checkDocAccess(req, reply, docId, 'owner')) return;
+        if (!await checkDocAccess(req, reply, docId, 'owner')) return;
 
         const body = req.body ?? {};
         const role = body.role;
@@ -246,7 +246,7 @@ export function createDocPermissionRoutes(db: Database) {
         }
 
         // Check if target user has permission
-        const existingPerm = getDocPermission(docId, targetUserId);
+        const existingPerm = await getDocPermission(docId, targetUserId);
         if (!existingPerm) {
           return reply.code(404).send({ error: 'User does not have explicit permission on this document' });
         }
@@ -258,7 +258,7 @@ export function createDocPermissionRoutes(db: Database) {
 
         try {
           const previousRole = existingPerm.role;
-          const updated = updateDocPermission(docId, targetUserId, role);
+          const updated = await updateDocPermission(docId, targetUserId, role);
 
           if (!updated) {
             return reply.code(404).send({ error: 'Permission not found' });
@@ -301,13 +301,13 @@ export function createDocPermissionRoutes(db: Database) {
         const targetUserId = req.params.userId;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Get actor's role
-        const actorRole = getEffectiveDocRole(db, docId, req);
+        const actorRole = await getEffectiveDocRole(db, docId, req);
         if (!actorRole) {
           return reply.code(403).send({ error: 'Access denied' });
         }
@@ -319,7 +319,7 @@ export function createDocPermissionRoutes(db: Database) {
         }
 
         // Check if target has permission
-        const existingPerm = getDocPermission(docId, targetUserId);
+        const existingPerm = await getDocPermission(docId, targetUserId);
         if (!existingPerm) {
           return reply.code(404).send({ error: 'User does not have explicit permission on this document' });
         }
@@ -331,7 +331,7 @@ export function createDocPermissionRoutes(db: Database) {
 
         try {
           const previousRole = existingPerm.role;
-          const revoked = revokeDocPermission(docId, targetUserId);
+          const revoked = await revokeDocPermission(docId, targetUserId);
 
           if (!revoked) {
             return reply.code(404).send({ error: 'Permission not found' });
@@ -374,13 +374,13 @@ export function createDocPermissionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Only owners can change workspace access
-        if (!checkDocAccess(req, reply, docId, 'owner')) return;
+        if (!await checkDocAccess(req, reply, docId, 'owner')) return;
 
         // Validate workspaceAccess value
         const body = req.body ?? {};
@@ -394,7 +394,7 @@ export function createDocPermissionRoutes(db: Database) {
 
         try {
           const previousAccess = doc.workspaceAccess ?? null;
-          const updated = updateDocWorkspaceAccess(docId, workspaceAccess);
+          const updated = await updateDocWorkspaceAccess(docId, workspaceAccess);
 
           if (!updated) {
             return reply.code(500).send({ error: 'Failed to update workspace access' });

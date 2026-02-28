@@ -1,0 +1,30 @@
+{
+  "name": "beyle-mobile",
+  "version": "0.1.0",
+  "description": "BEYLE Mobile — Capacitor shell for iOS and Android",
+  "private": true,
+  "scripts": {
+    "build:web": "cd \"../KACHERI FRONTEND\" && npm run build",
+    "inject:config": "node scripts/inject-config.js",
+    "inject:config:prod": "node scripts/inject-config.js https://api.beyle.app",
+    "cap:sync": "npx cap sync",
+    "cap:run:android": "npx cap run android",
+    "cap:run:ios": "npx cap run ios",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios",
+    "dev:android": "npm run build:web && npm run inject:config && npm run cap:sync && npm run cap:run:android",
+    "dev:ios": "npm run build:web && npm run inject:config && npm run cap:sync && npm run cap:run:ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/ios": "^6.2.0",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/status-bar": "^6.0.0",
+    "@capacitor/splash-screen": "^6.0.0",
+    "jaal-browser": "file:plugins/jaal-browser"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "typescript": "~5.9.3"
+  }
+}

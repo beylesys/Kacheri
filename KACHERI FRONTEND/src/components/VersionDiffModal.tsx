@@ -1,7 +1,8 @@
 // KACHERI FRONTEND/src/components/VersionDiffModal.tsx
 // Modal to display diff between two document versions.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { versionsApi, type VersionDiff, type DiffHunk } from '../api/versions';
 
 type Props = {
@@ -20,6 +21,8 @@ export function VersionDiffModal({
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, true);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,10 +90,10 @@ export function VersionDiffModal({
 
   return (
     <div className="diff-modal-overlay" onClick={onClose}>
-      <div className="diff-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="diff-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="version-diff-title" ref={dialogRef}>
         {/* Header */}
         <div className="diff-modal-header">
-          <h3 className="diff-modal-title">
+          <h3 className="diff-modal-title" id="version-diff-title">
             Comparing v{diff?.fromVersion ?? '?'} to v{diff?.toVersion ?? '?'}
           </h3>
           <button className="diff-modal-close" onClick={onClose}>

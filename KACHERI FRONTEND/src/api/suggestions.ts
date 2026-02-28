@@ -33,6 +33,9 @@ export type CreateSuggestionParams = {
 export type ListSuggestionsOptions = {
   status?: SuggestionStatus;
   authorId?: string;
+  changeType?: ChangeType;
+  from?: number;
+  to?: number;
 };
 
 const API_BASE =
@@ -100,12 +103,15 @@ export const suggestionsApi = {
   async list(
     docId: string,
     options?: ListSuggestionsOptions
-  ): Promise<{ suggestions: Suggestion[] }> {
+  ): Promise<{ suggestions: Suggestion[]; pendingCount: number; total: number }> {
     const qs = new URLSearchParams();
     if (options?.status) qs.set('status', options.status);
     if (options?.authorId) qs.set('authorId', options.authorId);
+    if (options?.changeType) qs.set('changeType', options.changeType);
+    if (options?.from !== undefined) qs.set('from', String(options.from));
+    if (options?.to !== undefined) qs.set('to', String(options.to));
     const q = qs.toString();
-    return request<{ suggestions: Suggestion[] }>(
+    return request<{ suggestions: Suggestion[]; pendingCount: number; total: number }>(
       `/docs/${docId}/suggestions${q ? `?${q}` : ''}`
     );
   },

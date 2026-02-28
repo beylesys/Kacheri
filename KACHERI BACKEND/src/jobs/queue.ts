@@ -75,23 +75,22 @@ class SQLiteJobQueue {
     const id = nanoid();
     const now = Date.now();
 
-    const stmt = db.prepare(`
-      INSERT INTO jobs (
+    await db.run(
+      `INSERT INTO jobs (
         id, type, doc_id, user_id, payload, status, priority,
         attempts, max_attempts, created_at, scheduled_at
-      ) VALUES (?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?)
-    `);
-
-    stmt.run(
-      id,
-      type,
-      docId ?? null,
-      userId,
-      JSON.stringify(payload),
-      options.priority ?? 0,
-      options.maxAttempts ?? 3,
-      now,
-      options.delay ? now + options.delay : (options.scheduledAt ?? null)
+      ) VALUES (?, ?, ?, ?, ?, 'pending', ?, 0, ?, ?, ?)`,
+      [
+        id,
+        type,
+        docId ?? null,
+        userId,
+        JSON.stringify(payload),
+        options.priority ?? 0,
+        options.maxAttempts ?? 3,
+        now,
+        options.delay ? now + options.delay : (options.scheduledAt ?? null),
+      ]
     );
 
     return this.getJob(id) as Promise<Job<T>>;
@@ -99,18 +98,20 @@ class SQLiteJobQueue {
 
   /** Get a job by ID */
   async getJob<T = unknown>(id: string): Promise<Job<T> | null> {
-    const row = db
-      .prepare(`SELECT * FROM jobs WHERE id = ?`)
-      .get(id) as JobRow | undefined;
+    const row = await db.queryOne<JobRow>(
+      `SELECT * FROM jobs WHERE id = ?`,
+      [id]
+    );
 
     return row ? rowToJob<T>(row) : null;
   }
 
   /** Get jobs for a document */
   async getJobsByDoc(docId: string): Promise<Job[]> {
-    const rows = db
-      .prepare(`SELECT * FROM jobs WHERE doc_id = ? ORDER BY created_at DESC`)
-      .all(docId) as JobRow[];
+    const rows = await db.queryAll<JobRow>(
+      `SELECT * FROM jobs WHERE doc_id = ? ORDER BY created_at DESC`,
+      [docId]
+    );
 
     return rows.map(row => rowToJob(row));
   }
@@ -133,24 +134,26 @@ class SQLiteJobQueue {
     sql += ` ORDER BY priority DESC, created_at ASC LIMIT ?`;
     params.push(limit);
 
-    const rows = db.prepare(sql).all(...params) as JobRow[];
+    const rows = await db.queryAll<JobRow>(sql, params);
     return rows.map(row => rowToJob(row));
   }
 
   /** Cancel a job */
   async cancel(id: string): Promise<boolean> {
-    const result = db
-      .prepare(`UPDATE jobs SET status = 'cancelled' WHERE id = ? AND status = 'pending'`)
-      .run(id);
+    const result = await db.run(
+      `UPDATE jobs SET status = 'cancelled' WHERE id = ? AND status = 'pending'`,
+      [id]
+    );
 
     return result.changes > 0;
   }
 
   /** Retry a failed job */
   async retry(id: string): Promise<boolean> {
-    const result = db
-      .prepare(`UPDATE jobs SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed'`)
-      .run(id);
+    const result = await db.run(
+      `UPDATE jobs SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed'`,
+      [id]
+    );
 
     return result.changes > 0;
   }
@@ -165,27 +168,29 @@ class SQLiteJobQueue {
     const now = Date.now();
 
     // Claim a job
-    const claimResult = db.prepare(`
-      UPDATE jobs
-      SET status = 'processing', started_at = ?, worker_id = ?, attempts = attempts + 1
-      WHERE id = (
-        SELECT id FROM jobs
-        WHERE status = 'pending'
-          AND (scheduled_at IS NULL OR scheduled_at <= ?)
-        ORDER BY priority DESC, created_at ASC
-        LIMIT 1
-      )
-    `).run(now, this.workerId, now);
+    const claimResult = await db.run(
+      `UPDATE jobs
+       SET status = 'processing', started_at = ?, worker_id = ?, attempts = attempts + 1
+       WHERE id = (
+         SELECT id FROM jobs
+         WHERE status = 'pending'
+           AND (scheduled_at IS NULL OR scheduled_at <= ?)
+         ORDER BY priority DESC, created_at ASC
+         LIMIT 1
+       )`,
+      [now, this.workerId, now]
+    );
 
     if (claimResult.changes === 0) {
       return false; // No jobs to process
     }
 
     // Get the claimed job
-    const row = db.prepare(`
-      SELECT * FROM jobs WHERE worker_id = ? AND status = 'processing'
-      ORDER BY started_at DESC LIMIT 1
-    `).get(this.workerId) as JobRow | undefined;
+    const row = await db.queryOne<JobRow>(
+      `SELECT * FROM jobs WHERE worker_id = ? AND status = 'processing'
+       ORDER BY started_at DESC LIMIT 1`,
+      [this.workerId]
+    );
 
     if (!row) return false;
 
@@ -194,10 +199,10 @@ class SQLiteJobQueue {
 
     if (!handler) {
       // No handler registered
-      db.prepare(`
-        UPDATE jobs SET status = 'failed', error = ?, completed_at = ?
-        WHERE id = ?
-      `).run(`No handler registered for job type: ${job.type}`, Date.now(), job.id);
+      await db.run(
+        `UPDATE jobs SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`,
+        [`No handler registered for job type: ${job.type}`, Date.now(), job.id]
+      );
       return true;
     }
 
@@ -205,25 +210,25 @@ class SQLiteJobQueue {
       const result = await handler(job);
 
       // Mark as completed
-      db.prepare(`
-        UPDATE jobs SET status = 'completed', result = ?, completed_at = ?
-        WHERE id = ?
-      `).run(JSON.stringify(result), Date.now(), job.id);
+      await db.run(
+        `UPDATE jobs SET status = 'completed', result = ?, completed_at = ? WHERE id = ?`,
+        [JSON.stringify(result), Date.now(), job.id]
+      );
     } catch (err) {
       const error = err as Error;
 
       // Check if we should retry
       if (job.attempts < job.maxAttempts) {
-        db.prepare(`
-          UPDATE jobs SET status = 'pending', error = ?, started_at = NULL, worker_id = NULL
-          WHERE id = ?
-        `).run(error.message, job.id);
+        await db.run(
+          `UPDATE jobs SET status = 'pending', error = ?, started_at = NULL, worker_id = NULL WHERE id = ?`,
+          [error.message, job.id]
+        );
       } else {
         // Max attempts reached
-        db.prepare(`
-          UPDATE jobs SET status = 'failed', error = ?, completed_at = ?
-          WHERE id = ?
-        `).run(error.message, Date.now(), job.id);
+        await db.run(
+          `UPDATE jobs SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`,
+          [error.message, Date.now(), job.id]
+        );
       }
     }
 
@@ -273,9 +278,9 @@ class SQLiteJobQueue {
     failed: number;
     cancelled: number;
   }> {
-    const rows = db.prepare(`
-      SELECT status, COUNT(*) as count FROM jobs GROUP BY status
-    `).all() as Array<{ status: string; count: number }>;
+    const rows = await db.queryAll<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) as count FROM jobs GROUP BY status`
+    );
 
     const stats = {
       pending: 0,
@@ -299,11 +304,12 @@ class SQLiteJobQueue {
   async cleanup(olderThanMs: number = 7 * 24 * 60 * 60 * 1000): Promise<number> {
     const cutoff = Date.now() - olderThanMs;
 
-    const result = db.prepare(`
-      DELETE FROM jobs
-      WHERE status IN ('completed', 'failed', 'cancelled')
-        AND completed_at < ?
-    `).run(cutoff);
+    const result = await db.run(
+      `DELETE FROM jobs
+       WHERE status IN ('completed', 'failed', 'cancelled')
+         AND completed_at < ?`,
+      [cutoff]
+    );
 
     return result.changes;
   }

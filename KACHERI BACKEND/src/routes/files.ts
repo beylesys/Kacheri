@@ -38,7 +38,7 @@ export default async function filesRoutes(app: FastifyInstance) {
   }>("/files/tree", async (req) => {
     const parentId = (req.query.parentId ?? "").toString() || undefined;
     const workspaceId = getWorkspaceId(req);
-    const nodes = listChildren(parentId, workspaceId);
+    const nodes = await listChildren(parentId, workspaceId);
     return { parentId: parentId ?? null, nodes };
   });
 
@@ -63,7 +63,7 @@ export default async function filesRoutes(app: FastifyInstance) {
     }
 
     try {
-      const node = createFolder({
+      const node = await createFolder({
         parentId: body.parentId ?? undefined,
         name: rawName,
         workspaceId,
@@ -121,7 +121,7 @@ export default async function filesRoutes(app: FastifyInstance) {
     }
 
     try {
-      const node = attachDocNode(docId, rawName, body.parentId ?? undefined, workspaceId);
+      const node = await attachDocNode(docId, rawName, body.parentId ?? undefined, workspaceId);
       return reply.code(201).send(node);
     } catch (err) {
       // Most common error here is an invalid parentId format.
@@ -151,10 +151,10 @@ export default async function filesRoutes(app: FastifyInstance) {
     let node = null;
     try {
       if (body.name && body.name.trim()) {
-        node = renameNode(nodeId, body.name);
+        node = await renameNode(nodeId, body.name);
       }
       if (body.parentId !== undefined) {
-        node = moveNode(nodeId, body.parentId, workspaceId);
+        node = await moveNode(nodeId, body.parentId, workspaceId);
       }
     } catch (err) {
       req.log.error({ err }, "failed to update fs node");
@@ -186,7 +186,7 @@ export default async function filesRoutes(app: FastifyInstance) {
     const nodeId = (req.params.id || "").toString();
 
     try {
-      const info = getNodeWithChildCount(nodeId);
+      const info = await getNodeWithChildCount(nodeId);
 
       if (!info) {
         return reply.code(404).send({ error: "not found" });
@@ -196,7 +196,7 @@ export default async function filesRoutes(app: FastifyInstance) {
 
       if (node.kind === "folder" && childCount > 0) {
         // Surface the immediate children so the UI can explain "why".
-        const children = listChildren(nodeId, workspaceId);
+        const children = await listChildren(nodeId, workspaceId);
         return reply.code(409).send({
           error: "folder_not_empty",
           message: "Cannot delete a non-empty folder.",
@@ -205,7 +205,7 @@ export default async function filesRoutes(app: FastifyInstance) {
         });
       }
 
-      const ok = deleteNode(nodeId);
+      const ok = await deleteNode(nodeId);
       if (!ok) {
         // If we got here, any failure is effectively "not found" (race / double-delete).
         return reply.code(404).send({ error: "not found" });
@@ -233,7 +233,7 @@ export default async function filesRoutes(app: FastifyInstance) {
   // Trash routes for files/nodes
   app.get("/files/trash", async (req) => {
     const workspaceId = getWorkspaceId(req);
-    return listFilesTrash(workspaceId);
+    return await listFilesTrash(workspaceId);
   });
 
   app.post<{
@@ -248,7 +248,7 @@ export default async function filesRoutes(app: FastifyInstance) {
     const nodeId = (req.params.id || "").toString();
 
     try {
-      const restored = restoreNode(nodeId);
+      const restored = await restoreNode(nodeId);
       if (!restored) {
         return reply.code(404).send({ error: "not found or not in trash" });
       }
@@ -285,9 +285,9 @@ export default async function filesRoutes(app: FastifyInstance) {
 
     try {
       // Get node info before deleting for audit log
-      const nodeInfo = getNodeWithChildCount(nodeId);
+      const nodeInfo = await getNodeWithChildCount(nodeId);
 
-      const ok = permanentDeleteNode(nodeId);
+      const ok = await permanentDeleteNode(nodeId);
       if (!ok) {
         return reply.code(404).send({ error: "not found or not in trash" });
       }

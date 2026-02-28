@@ -11,7 +11,7 @@
  */
 
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import { createUserStore, type CreateUserInput, type UserStore } from './users';
 import { createSessionStore, hashToken, type SessionStore } from './sessions';
 import {
@@ -48,12 +48,15 @@ declare module 'fastify' {
       email: string;
       displayName: string;
     };
+    userId?: string;
     sessionId?: string;
+    patScopes?: string[] | null;     // PAT scopes (null = unrestricted)
+    patWorkspaceId?: string;          // workspace the PAT is scoped to
   }
 }
 
 export interface AuthRoutesContext {
-  db: Database;
+  db: DbAdapter;
   userStore: UserStore;
   sessionStore: SessionStore;
 }
@@ -61,7 +64,7 @@ export interface AuthRoutesContext {
 /**
  * Create auth routes plugin
  */
-export function createAuthRoutes(db: Database): FastifyPluginAsync {
+export function createAuthRoutes(db: DbAdapter): FastifyPluginAsync {
   const userStore = createUserStore(db);
   const sessionStore = createSessionStore(db);
 
@@ -125,21 +128,9 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
           displayName: body.displayName.trim(),
         });
 
-        // Create session and tokens
+        // Create session, generate tokens with its ID, then update the hash
+        const session = await sessionStore.create(user.id, '');
         const tokens = createTokenPair(
-          {
-            id: user.id,
-            email: user.email,
-            displayName: user.displayName,
-          },
-          sessionStore.create(user.id, '').id // Placeholder, will be updated
-        );
-
-        // Create actual session with refresh token
-        const session = sessionStore.create(user.id, tokens.refreshToken);
-
-        // Regenerate tokens with correct session ID
-        const finalTokens = createTokenPair(
           {
             id: user.id,
             email: user.email,
@@ -147,10 +138,11 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
           },
           session.id
         );
+        await sessionStore.updateTokenHash(session.id, tokens.refreshToken);
 
         return {
           user: userStore.toPublic(user),
-          ...finalTokens,
+          ...tokens,
         };
       } catch (err: any) {
         if (err.message === 'Email already registered') {
@@ -186,19 +178,8 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
         });
       }
 
-      // Create session
-      const tempTokens = createTokenPair(
-        {
-          id: user.id,
-          email: user.email,
-          displayName: user.displayName,
-        },
-        'temp'
-      );
-
-      const session = sessionStore.create(user.id, tempTokens.refreshToken);
-
-      // Create final tokens with session ID
+      // Create session, generate tokens with its ID, then update the hash
+      const session = await sessionStore.create(user.id, '');
       const tokens = createTokenPair(
         {
           id: user.id,
@@ -207,6 +188,7 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
         },
         session.id
       );
+      await sessionStore.updateTokenHash(session.id, tokens.refreshToken);
 
       return {
         user: userStore.toPublic(user),
@@ -222,13 +204,13 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
       if (body?.refreshToken) {
         const payload = verifyToken<RefreshTokenPayload>(body.refreshToken);
         if (payload && isRefreshToken(payload)) {
-          sessionStore.revoke(payload.sid);
+          await sessionStore.revoke(payload.sid);
         }
       }
 
       // If authenticated via middleware, revoke that session too
       if (req.sessionId) {
-        sessionStore.revoke(req.sessionId);
+        await sessionStore.revoke(req.sessionId);
       }
 
       return { success: true };
@@ -255,7 +237,7 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
       }
 
       // Validate session is still active
-      if (!sessionStore.isValid(payload.sid)) {
+      if (!await sessionStore.isValid(payload.sid)) {
         return reply.status(401).send({
           error: 'unauthorized',
           message: 'Session has been revoked or expired',
@@ -263,7 +245,7 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
       }
 
       // Get user
-      const user = userStore.findById(payload.sub);
+      const user = await userStore.findById(payload.sub);
       if (!user || user.status !== 'active') {
         return reply.status(401).send({
           error: 'unauthorized',
@@ -272,9 +254,8 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
       }
 
       // Issue new tokens (rotate refresh token)
-      sessionStore.revoke(payload.sid);
-      const session = sessionStore.create(user.id, '');
-
+      await sessionStore.revoke(payload.sid);
+      const session = await sessionStore.create(user.id, '');
       const tokens = createTokenPair(
         {
           id: user.id,
@@ -283,6 +264,7 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
         },
         session.id
       );
+      await sessionStore.updateTokenHash(session.id, tokens.refreshToken);
 
       return tokens;
     });
@@ -296,7 +278,7 @@ export function createAuthRoutes(db: Database): FastifyPluginAsync {
         });
       }
 
-      const user = userStore.findById(req.user.id);
+      const user = await userStore.findById(req.user.id);
       if (!user) {
         return reply.status(401).send({
           error: 'unauthorized',

@@ -2,6 +2,8 @@
 // Side-by-side PDF import modal: original PDF + extracted editable text
 import { useEffect, useState, useRef } from "react";
 import PDFViewer from "./PDFViewer";
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import { sanitizeHtml } from '../utils/sanitize';
 import type { DetectedField } from "../api";
 
 type Props = {
@@ -32,6 +34,8 @@ export default function PDFImportModal({
   const [fields, setFields] = useState<DetectedField[]>(detectedFields);
   const [pdfPage, setPdfPage] = useState({ current: 1, total: 0 });
   const editableRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
 
   // Sync extractedHtml when it changes
   useEffect(() => {
@@ -95,7 +99,7 @@ export default function PDFImportModal({
         background: "#fff",
       }}
     >
-      <div style={{ fontWeight: 700, color: "#334155" }}>
+      <div id="pdf-import-title" style={{ fontWeight: 700, color: "#334155" }}>
         Import PDF — Review & Approve
       </div>
       <div
@@ -198,8 +202,10 @@ export default function PDFImportModal({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
+      aria-labelledby="pdf-import-title"
       style={{
         position: "fixed",
         inset: 0,
@@ -318,7 +324,7 @@ export default function PDFImportModal({
               ref={editableRef}
               contentEditable
               suppressContentEditableWarning
-              dangerouslySetInnerHTML={{ __html: displayHtml }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(displayHtml) }}
               style={{
                 flex: 1,
                 minHeight: 0,

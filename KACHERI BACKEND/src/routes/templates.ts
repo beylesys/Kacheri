@@ -2,10 +2,10 @@
 // REST endpoints for document templates.
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import { listTemplates, getTemplate } from '../store/templates';
 
-export function createTemplateRoutes(_db: Database) {
+export function createTemplateRoutes(_db: DbAdapter) {
   return async function templateRoutes(app: FastifyInstance) {
     // -------------------------------------------
     // GET /templates

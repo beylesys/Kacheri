@@ -1,8 +1,9 @@
 // KACHERI FRONTEND/src/components/DocPickerModal.tsx
 // Modal for selecting a document to link to (cross-doc links)
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { DocsAPI, type DocMeta } from "../api";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import "./docPickerModal.css";
 
 export interface DocPickerModalProps {
@@ -25,6 +26,9 @@ export const DocPickerModal: React.FC<DocPickerModalProps> = ({
   excludeDocId,
   title = "Link to Document",
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
   const [docs, setDocs] = useState<DocMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +86,7 @@ export const DocPickerModal: React.FC<DocPickerModalProps> = ({
 
   return (
     <div
+      ref={dialogRef}
       className="bk-modal-backdrop"
       onMouseDown={handleBackdropClick}
       onKeyDown={handleKeyDown}

@@ -2,13 +2,17 @@
 // User notification store with CRUD operations.
 
 import { db } from '../db';
+import { getJobQueue } from '../jobs/queue';
+import type { NotificationDeliverPayload } from '../jobs/types';
 
 // ============================================
 // Types
 // ============================================
 
-export type NotificationType = 'mention' | 'comment_reply' | 'doc_shared' | 'suggestion_pending';
-export type LinkType = 'doc' | 'comment' | 'message' | null;
+export type NotificationType = 'mention' | 'comment_reply' | 'doc_shared' | 'suggestion_pending' | 'reminder' | 'review_assigned' | 'canvas_shared' | 'ai_generation_complete' | 'export_complete' | 'frame_lock_requested'
+  // S14 — Cross-Product Notification Bridge
+  | 'cross_product:entity_update' | 'cross_product:entity_conflict' | 'cross_product:new_connection';
+export type LinkType = 'doc' | 'comment' | 'message' | 'canvas' | 'entity' | null;
 
 export interface Notification {
   id: number;
@@ -120,7 +124,7 @@ function rowToNotificationMeta(row: NotificationRow): NotificationMeta {
 /**
  * Create a new notification.
  */
-export function createNotification(params: CreateNotificationParams): NotificationMeta | null {
+export async function createNotification(params: CreateNotificationParams): Promise<NotificationMeta | null> {
   const {
     userId,
     workspaceId,
@@ -135,17 +139,18 @@ export function createNotification(params: CreateNotificationParams): Notificati
   const now = Date.now();
 
   try {
-    const result = db.prepare(`
+    const result = await db.run(`
       INSERT INTO notifications (
         user_id, workspace_id, type, title, body,
         link_type, link_id, actor_id,
         read_at, created_at, deleted_at
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
-    `).run(userId, workspaceId, type, title, body, linkType, linkId, actorId, now);
+      RETURNING id
+    `, [userId, workspaceId, type, title, body, linkType, linkId, actorId, now]);
 
     const notificationId = result.lastInsertRowid as number;
-    return getNotification(notificationId);
+    return await getNotification(notificationId);
   } catch (err) {
     console.error('[notifications] Failed to create notification:', err);
     return null;
@@ -155,15 +160,15 @@ export function createNotification(params: CreateNotificationParams): Notificati
 /**
  * Get a single notification by ID.
  */
-export function getNotification(id: number): NotificationMeta | null {
+export async function getNotification(id: number): Promise<NotificationMeta | null> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<NotificationRow>(`
       SELECT id, user_id, workspace_id, type, title, body,
              link_type, link_id, actor_id,
              read_at, created_at, deleted_at
       FROM notifications
       WHERE id = ? AND deleted_at IS NULL
-    `).get(id) as NotificationRow | undefined;
+    `, [id]);
 
     return row ? rowToNotificationMeta(row) : null;
   } catch (err) {
@@ -176,10 +181,10 @@ export function getNotification(id: number): NotificationMeta | null {
  * List notifications for a user with pagination.
  * Returns notifications in reverse chronological order (newest first).
  */
-export function listNotifications(
+export async function listNotifications(
   userId: string,
   options: ListNotificationsOptions = {}
-): { notifications: NotificationMeta[]; hasMore: boolean } {
+): Promise<{ notifications: NotificationMeta[]; hasMore: boolean }> {
   const {
     limit = 50,
     before,
@@ -218,7 +223,7 @@ export function listNotifications(
   params.push(effectiveLimit + 1); // Fetch one extra to check hasMore
 
   try {
-    const rows = db.prepare(query).all(...params) as NotificationRow[];
+    const rows = await db.queryAll<NotificationRow>(query, params);
 
     const hasMore = rows.length > effectiveLimit;
     const resultRows = hasMore ? rows.slice(0, effectiveLimit) : rows;
@@ -236,15 +241,15 @@ export function listNotifications(
  * Mark a notification as read.
  * Only the owner can mark their own notification.
  */
-export function markAsRead(id: number, userId: string): boolean {
+export async function markAsRead(id: number, userId: string): Promise<boolean> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE notifications
       SET read_at = ?
       WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND read_at IS NULL
-    `).run(now, id, userId);
+    `, [now, id, userId]);
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -257,7 +262,7 @@ export function markAsRead(id: number, userId: string): boolean {
  * Mark all notifications as read for a user.
  * Optionally filter by workspace.
  */
-export function markAllAsRead(userId: string, workspaceId?: string): number {
+export async function markAllAsRead(userId: string, workspaceId?: string): Promise<number> {
   const now = Date.now();
 
   try {
@@ -273,7 +278,7 @@ export function markAllAsRead(userId: string, workspaceId?: string): number {
       params.push(workspaceId);
     }
 
-    const info = db.prepare(query).run(...params);
+    const info = await db.run(query, params);
 
     return info.changes ?? 0;
   } catch (err) {
@@ -286,23 +291,23 @@ export function markAllAsRead(userId: string, workspaceId?: string): number {
  * Get unread notification count for a user.
  * Optionally filter by workspace.
  */
-export function getUnreadCount(userId: string, workspaceId?: string): number {
+export async function getUnreadCount(userId: string, workspaceId?: string): Promise<number> {
   try {
     let query = `
       SELECT COUNT(*) as count
       FROM notifications
       WHERE user_id = ? AND deleted_at IS NULL AND read_at IS NULL
     `;
-    const params: (string)[] = [userId];
+    const params: string[] = [userId];
 
     if (workspaceId) {
       query += ` AND workspace_id = ?`;
       params.push(workspaceId);
     }
 
-    const row = db.prepare(query).get(...params) as { count: number };
+    const row = await db.queryOne<{ count: number }>(query, params);
 
-    return row.count;
+    return row?.count ?? 0;
   } catch (err) {
     console.error('[notifications] Failed to get unread count:', err);
     return 0;
@@ -313,15 +318,15 @@ export function getUnreadCount(userId: string, workspaceId?: string): number {
  * Soft delete a notification.
  * Only the owner can delete their own notification.
  */
-export function deleteNotification(id: number, userId: string): boolean {
+export async function deleteNotification(id: number, userId: string): Promise<boolean> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE notifications
       SET deleted_at = ?
       WHERE id = ? AND user_id = ? AND deleted_at IS NULL
-    `).run(now, id, userId);
+    `, [now, id, userId]);
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -334,16 +339,53 @@ export function deleteNotification(id: number, userId: string): boolean {
  * Delete all notifications for a workspace (permanent).
  * Used when a workspace is deleted.
  */
-export function deleteAllWorkspaceNotifications(workspaceId: string): number {
+export async function deleteAllWorkspaceNotifications(workspaceId: string): Promise<number> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM notifications
       WHERE workspace_id = ?
-    `).run(workspaceId);
+    `, [workspaceId]);
 
     return info.changes ?? 0;
   } catch (err) {
     console.error('[notifications] Failed to delete all workspace notifications:', err);
     return 0;
   }
+}
+
+/**
+ * Create a notification AND enqueue a delivery job for external channels.
+ * Wraps createNotification() with automatic job queue dispatch.
+ * Callers should use this when external delivery (webhook, Slack) is desired.
+ */
+export async function createAndDeliverNotification(
+  params: CreateNotificationParams
+): Promise<NotificationMeta | null> {
+  const notification = await createNotification(params);
+  if (!notification) return null;
+
+  // Enqueue delivery job for external channels
+  try {
+    const queue = getJobQueue();
+    const payload: NotificationDeliverPayload = {
+      notificationId: notification.id,
+      userId: params.userId,
+      workspaceId: params.workspaceId,
+      notificationType: params.type,
+      title: params.title,
+      body: params.body ?? null,
+      linkType: params.linkType ?? null,
+      linkId: params.linkId ?? null,
+      actorId: params.actorId ?? null,
+    };
+
+    queue.add('notification:deliver' as any, payload, params.userId, undefined, {
+      maxAttempts: 3,
+    });
+  } catch (err) {
+    // Non-fatal: in-app notification already created, external delivery failed to enqueue
+    console.warn('[notifications] Failed to enqueue delivery job:', err);
+  }
+
+  return notification;
 }

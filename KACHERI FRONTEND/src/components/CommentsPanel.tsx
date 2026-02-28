@@ -1,8 +1,8 @@
 // KACHERI FRONTEND/src/components/CommentsPanel.tsx
 // Main comments panel drawer for document inline comments.
 
-import { useState, useCallback, useEffect } from 'react';
-import { useComments, type FilterTab } from '../hooks/useComments';
+import { memo, useState, useCallback, useEffect, useMemo } from 'react';
+import { useComments, type FilterTab, type ServerFilters } from '../hooks/useComments';
 import { commentsApi } from '../api/comments';
 import { workspacesApi, type WorkspaceMember } from '../api/workspaces';
 import { CommentThread } from './CommentThread';
@@ -31,7 +31,7 @@ type Props = {
   workspaceId?: string | null;
 };
 
-export function CommentsPanel({
+function CommentsPanelInner({
   docId,
   open,
   onClose,
@@ -42,13 +42,34 @@ export function CommentsPanel({
   currentUserId = '',
   workspaceId,
 }: Props) {
-  const { threads: _threads, loading, error, refetch, filterThreads, stats } = useComments(docId, refreshKey);
-
   const [filter, setFilter] = useState<FilterTab>('all');
   const [newCommentText, setNewCommentText] = useState('');
   const [newCommentMentions, setNewCommentMentions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [workspaceMembers, setWorkspaceMembers] = useState<MentionMember[]>([]);
+  const [authorFilter, setAuthorFilter] = useState<string>('');
+  const [searchFilter, setSearchFilter] = useState<string>('');
+  const [searchDebounced, setSearchDebounced] = useState<string>('');
+  const [bulkResolving, setBulkResolving] = useState(false);
+
+  // Debounce search input (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchDebounced(searchFilter);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchFilter]);
+
+  // Build server filters memo
+  const serverFilters = useMemo<ServerFilters | undefined>(() => {
+    if (!authorFilter && !searchDebounced) return undefined;
+    return {
+      authorId: authorFilter || undefined,
+      search: searchDebounced || undefined,
+    };
+  }, [authorFilter, searchDebounced]);
+
+  const { threads: _threads, loading, error, refetch, filterThreads, stats } = useComments(docId, refreshKey, serverFilters);
 
   // Get user ID from localStorage if not provided
   const userId = currentUserId || (() => {
@@ -115,6 +136,21 @@ export function CommentsPanel({
     }
   }, [docId, currentSelection, newCommentText, newCommentMentions, submitting, onCommentCreated, refetch]);
 
+  const handleBulkResolve = useCallback(async () => {
+    if (bulkResolving) return;
+    if (!confirm(`Resolve all ${stats.open} open threads?`)) return;
+
+    setBulkResolving(true);
+    try {
+      await commentsApi.bulkResolve(docId);
+      refetch();
+    } catch (err) {
+      console.error('Failed to bulk resolve:', err);
+    } finally {
+      setBulkResolving(false);
+    }
+  }, [docId, stats.open, bulkResolving, refetch]);
+
   const truncateText = (text: string, maxLen: number) => {
     if (text.length <= maxLen) return text;
     return text.slice(0, maxLen) + '...';
@@ -139,12 +175,11 @@ export function CommentsPanel({
         className={`comments-panel ${open ? 'open' : ''}`}
         role="complementary"
         aria-label="Comments"
-        aria-expanded={open}
       >
         {/* Header */}
         <div className="comments-header">
           <div className="comments-title">Comments</div>
-          <button className="comments-close" onClick={onClose} title="Close">
+          <button className="comments-close" onClick={onClose} title="Close" aria-label="Close panel">
             x
           </button>
         </div>
@@ -171,6 +206,40 @@ export function CommentsPanel({
           </button>
         </div>
 
+        {/* Filter bar */}
+        <div className="comments-filter-bar">
+          <input
+            type="text"
+            className="comments-search-input"
+            placeholder="Search comments..."
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
+          />
+          <div className="comments-filter-row">
+            <select
+              className="comments-author-filter"
+              value={authorFilter}
+              onChange={(e) => setAuthorFilter(e.target.value)}
+            >
+              <option value="">All authors</option>
+              {workspaceMembers.map((m) => (
+                <option key={m.userId} value={m.userId}>
+                  {m.displayName || m.userId}
+                </option>
+              ))}
+            </select>
+            {stats.open > 0 && (
+              <button
+                className="comments-resolve-all-btn"
+                onClick={handleBulkResolve}
+                disabled={bulkResolving}
+              >
+                {bulkResolving ? 'Resolving...' : `Resolve All (${stats.open})`}
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Thread list */}
         <div className="comments-list">
           {loading && <div className="comments-loading">Loading comments...</div>}
@@ -179,7 +248,9 @@ export function CommentsPanel({
 
           {!loading && !error && filteredThreads.length === 0 && (
             <div className="comments-empty">
-              {filter === 'all'
+              {(authorFilter || searchDebounced)
+                ? 'No comments match the current filters.'
+                : filter === 'all'
                 ? 'No comments yet. Select text and add a comment.'
                 : filter === 'open'
                 ? 'No open comments.'
@@ -243,3 +314,5 @@ export function CommentsPanel({
     </>
   );
 }
+
+export const CommentsPanel = memo(CommentsPanelInner);

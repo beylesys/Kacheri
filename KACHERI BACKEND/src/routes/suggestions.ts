@@ -2,7 +2,7 @@
 // REST endpoints for document suggestions (track changes mode).
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import {
   createSuggestion,
   getSuggestion,
@@ -28,7 +28,7 @@ import {
 } from '../workspace/middleware';
 import { wsBroadcast } from '../realtime/globalHub';
 
-export function createSuggestionRoutes(db: Database) {
+export function createSuggestionRoutes(db: DbAdapter) {
   return async function suggestionRoutes(app: FastifyInstance) {
     // Helper to get user ID from request
     function requireUser(req: FastifyRequest, reply: FastifyReply): string | null {
@@ -41,13 +41,13 @@ export function createSuggestionRoutes(db: Database) {
     }
 
     // Helper to check doc access and set req.docRole
-    function checkDocAccess(
+    async function checkDocAccess(
       req: FastifyRequest,
       reply: FastifyReply,
       docId: string,
       requiredRole: 'viewer' | 'commenter' | 'editor' | 'owner'
-    ): boolean {
-      const role = getEffectiveDocRole(db, docId, req);
+    ): Promise<boolean> {
+      const role = await getEffectiveDocRole(db, docId, req);
       if (!role) {
         reply.code(403).send({ error: 'Access denied' });
         return false;
@@ -77,7 +77,15 @@ export function createSuggestionRoutes(db: Database) {
     // -------------------------------------------
     app.get<{
       Params: { id: string };
-      Querystring: { status?: string; authorId?: string; limit?: string; offset?: string };
+      Querystring: {
+        status?: string;
+        authorId?: string;
+        changeType?: string;
+        from?: string;
+        to?: string;
+        limit?: string;
+        offset?: string;
+      };
     }>(
       '/docs/:id/suggestions',
       async (req, reply) => {
@@ -87,13 +95,13 @@ export function createSuggestionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check viewer+ access
-        if (!checkDocAccess(req, reply, docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, docId, 'viewer')) return;
 
         const options: ListSuggestionsOptions = {};
 
@@ -103,6 +111,24 @@ export function createSuggestionRoutes(db: Database) {
 
         if (req.query.authorId) {
           options.authorId = req.query.authorId;
+        }
+
+        if (req.query.changeType && isValidChangeType(req.query.changeType)) {
+          options.changeType = req.query.changeType;
+        }
+
+        if (req.query.from) {
+          const from = parseInt(req.query.from, 10);
+          if (!isNaN(from) && from >= 0) {
+            options.from = from;
+          }
+        }
+
+        if (req.query.to) {
+          const to = parseInt(req.query.to, 10);
+          if (!isNaN(to) && to >= 0) {
+            options.to = to;
+          }
         }
 
         if (req.query.limit) {
@@ -119,10 +145,10 @@ export function createSuggestionRoutes(db: Database) {
           }
         }
 
-        const suggestions = listSuggestions(docId, options);
-        const pendingCount = getPendingCount(docId);
+        const { suggestions, total } = await listSuggestions(docId, options);
+        const pendingCount = await getPendingCount(docId);
 
-        return { suggestions, pendingCount };
+        return { suggestions, pendingCount, total };
       }
     );
 
@@ -150,13 +176,13 @@ export function createSuggestionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check commenter+ access
-        if (!checkDocAccess(req, reply, docId, 'commenter')) return;
+        if (!await checkDocAccess(req, reply, docId, 'commenter')) return;
 
         const { changeType, fromPos, toPos, originalText, proposedText, comment } = req.body;
 
@@ -198,7 +224,7 @@ export function createSuggestionRoutes(db: Database) {
         };
 
         try {
-          const suggestion = createSuggestion(params);
+          const suggestion = await createSuggestion(params);
 
           if (!suggestion) {
             return reply.code(400).send({ error: 'Failed to create suggestion' });
@@ -252,13 +278,13 @@ export function createSuggestionRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid suggestion ID' });
         }
 
-        const suggestion = getSuggestion(suggestionId);
+        const suggestion = await getSuggestion(suggestionId);
         if (!suggestion) {
           return reply.code(404).send({ error: 'Suggestion not found' });
         }
 
         // Check viewer+ access on the doc
-        if (!checkDocAccess(req, reply, suggestion.docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, suggestion.docId, 'viewer')) return;
 
         return suggestion;
       }
@@ -283,13 +309,13 @@ export function createSuggestionRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid suggestion ID' });
         }
 
-        const existing = getSuggestion(suggestionId);
+        const existing = await getSuggestion(suggestionId);
         if (!existing) {
           return reply.code(404).send({ error: 'Suggestion not found' });
         }
 
         // Check commenter+ access on the doc
-        if (!checkDocAccess(req, reply, existing.docId, 'commenter')) return;
+        if (!await checkDocAccess(req, reply, existing.docId, 'commenter')) return;
 
         // Only author can edit their own suggestion
         if (existing.authorId !== userId) {
@@ -304,14 +330,14 @@ export function createSuggestionRoutes(db: Database) {
         const comment = req.body?.comment?.trim() ?? null;
 
         try {
-          const updated = updateSuggestionComment(suggestionId, comment);
+          const updated = await updateSuggestionComment(suggestionId, comment);
 
           if (!updated) {
             return reply.code(404).send({ error: 'Suggestion not found or not pending' });
           }
 
           // Log audit event if doc is workspace-scoped
-          const doc = getDoc(existing.docId);
+          const doc = await getDoc(existing.docId);
           if (doc?.workspaceId) {
             logAuditEvent({
               workspaceId: doc.workspaceId,
@@ -357,13 +383,13 @@ export function createSuggestionRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid suggestion ID' });
         }
 
-        const existing = getSuggestion(suggestionId);
+        const existing = await getSuggestion(suggestionId);
         if (!existing) {
           return reply.code(404).send({ error: 'Suggestion not found' });
         }
 
         // Get user's role on the doc
-        const role = getEffectiveDocRole(db, existing.docId, req);
+        const role = await getEffectiveDocRole(db, existing.docId, req);
         if (!role) {
           return reply.code(403).send({ error: 'Access denied' });
         }
@@ -378,14 +404,14 @@ export function createSuggestionRoutes(db: Database) {
         }
 
         try {
-          const deleted = deleteSuggestion(suggestionId);
+          const deleted = await deleteSuggestion(suggestionId);
 
           if (!deleted) {
             return reply.code(404).send({ error: 'Suggestion not found' });
           }
 
           // Log audit event if doc is workspace-scoped
-          const doc = getDoc(existing.docId);
+          const doc = await getDoc(existing.docId);
           if (doc?.workspaceId) {
             logAuditEvent({
               workspaceId: doc.workspaceId,
@@ -431,13 +457,13 @@ export function createSuggestionRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid suggestion ID' });
         }
 
-        const suggestion = getSuggestion(suggestionId);
+        const suggestion = await getSuggestion(suggestionId);
         if (!suggestion) {
           return reply.code(404).send({ error: 'Suggestion not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, suggestion.docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, suggestion.docId, 'editor')) return;
 
         // Can only accept pending suggestions
         if (suggestion.status !== 'pending') {
@@ -445,14 +471,14 @@ export function createSuggestionRoutes(db: Database) {
         }
 
         try {
-          const accepted = acceptSuggestion(suggestionId, userId);
+          const accepted = await acceptSuggestion(suggestionId, userId);
 
           if (!accepted) {
             return reply.code(400).send({ error: 'Failed to accept suggestion' });
           }
 
           // Log audit event if doc is workspace-scoped
-          const doc = getDoc(suggestion.docId);
+          const doc = await getDoc(suggestion.docId);
           if (doc?.workspaceId) {
             logAuditEvent({
               workspaceId: doc.workspaceId,
@@ -477,7 +503,7 @@ export function createSuggestionRoutes(db: Database) {
           }
 
           // Return updated suggestion
-          const updated = getSuggestion(suggestionId);
+          const updated = await getSuggestion(suggestionId);
           return { ok: true, suggestion: updated };
         } catch (err: any) {
           req.log.error({ err }, 'Failed to accept suggestion');
@@ -502,13 +528,13 @@ export function createSuggestionRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid suggestion ID' });
         }
 
-        const suggestion = getSuggestion(suggestionId);
+        const suggestion = await getSuggestion(suggestionId);
         if (!suggestion) {
           return reply.code(404).send({ error: 'Suggestion not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, suggestion.docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, suggestion.docId, 'editor')) return;
 
         // Can only reject pending suggestions
         if (suggestion.status !== 'pending') {
@@ -516,14 +542,14 @@ export function createSuggestionRoutes(db: Database) {
         }
 
         try {
-          const rejected = rejectSuggestion(suggestionId, userId);
+          const rejected = await rejectSuggestion(suggestionId, userId);
 
           if (!rejected) {
             return reply.code(400).send({ error: 'Failed to reject suggestion' });
           }
 
           // Log audit event if doc is workspace-scoped
-          const doc = getDoc(suggestion.docId);
+          const doc = await getDoc(suggestion.docId);
           if (doc?.workspaceId) {
             logAuditEvent({
               workspaceId: doc.workspaceId,
@@ -548,7 +574,7 @@ export function createSuggestionRoutes(db: Database) {
           }
 
           // Return updated suggestion
-          const updated = getSuggestion(suggestionId);
+          const updated = await getSuggestion(suggestionId);
           return { ok: true, suggestion: updated };
         } catch (err: any) {
           req.log.error({ err }, 'Failed to reject suggestion');
@@ -571,16 +597,16 @@ export function createSuggestionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId, 'editor')) return;
 
         try {
-          const count = acceptAllPending(docId, userId);
+          const count = await acceptAllPending(docId, userId);
 
           // Log audit event if doc is workspace-scoped and there were changes
           if (doc.workspaceId && count > 0) {
@@ -626,16 +652,16 @@ export function createSuggestionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId, 'editor')) return;
 
         try {
-          const count = rejectAllPending(docId, userId);
+          const count = await rejectAllPending(docId, userId);
 
           // Log audit event if doc is workspace-scoped and there were changes
           if (doc.workspaceId && count > 0) {

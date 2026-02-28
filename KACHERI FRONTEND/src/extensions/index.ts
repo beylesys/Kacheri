@@ -7,7 +7,7 @@ export { default as ImageNodeView } from "./ImageNodeView";
 // Document structure extensions
 export { PageBreak } from "./PageBreak";
 export { SectionBreak } from "./SectionBreak";
-export { ColumnSection } from "./ColumnSection";
+export { ColumnSection, type ColumnGap, type ColumnRule } from "./ColumnSection";
 
 // List extensions
 export {
@@ -20,3 +20,6 @@ export { DocLink } from "./DocLink";
 
 // AI heatmap extension (Phase 5 - P1.2)
 export { AIHeatmark, type AIHeatmarkAttrs } from "./AIHeatmark";
+
+// Canvas frame embedding in Docs (Slice P9)
+export { CanvasEmbed, type CanvasEmbedAttrs } from "./CanvasEmbed";

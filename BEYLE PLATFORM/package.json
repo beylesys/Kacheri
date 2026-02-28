@@ -1,0 +1,15 @@
+{
+  "name": "beyle-platform",
+  "version": "0.1.0",
+  "description": "BEYLE Platform — unified desktop shell for all BEYLE products",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron ."
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^30.0.0"
+  }
+}

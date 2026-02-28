@@ -1,0 +1,63 @@
+/* KACHERI FRONTEND/src/components/attachmentViewer.css
+   Styles for AttachmentViewer modal — file preview overlay
+*/
+
+.attachment-viewer-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.attachment-viewer-title {
+  font-weight: 700;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+.attachment-viewer-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: #e0f2fe;
+  color: #0369a1;
+  border-radius: 4px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.attachment-viewer-size {
+  font-size: 12px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.attachment-viewer-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.attachment-viewer-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.attachment-viewer-footer {
+  padding: 10px 16px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #64748b;
+  background: #f9fafb;
+  flex-shrink: 0;
+}

@@ -1,7 +1,7 @@
 // KACHERI FRONTEND/src/components/VersionsPanel.tsx
 // Main versions panel drawer for document version history.
 
-import { useState, useCallback } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { useVersions, type VersionFilter } from '../hooks/useVersions';
 import { versionsApi, type DocVersionMeta } from '../api/versions';
 import { VersionItem } from './VersionItem';
@@ -26,7 +26,7 @@ type Props = {
   onVersionRestored?: () => void;
 };
 
-export function VersionsPanel({
+function VersionsPanelInner({
   docId,
   open,
   onClose,
@@ -48,6 +48,11 @@ export function VersionsPanel({
     versionId: number;
     compareWith: number;
   } | null>(null);
+
+  // Compare mode state (panel-level arbitrary version comparison)
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareA, setCompareA] = useState<number | null>(null);
+  const [compareB, setCompareB] = useState<number | null>(null);
 
   // Restore dialog state
   const [restoreVersion, setRestoreVersion] = useState<DocVersionMeta | null>(null);
@@ -102,6 +107,23 @@ export function VersionsPanel({
     setDiffModal({ versionId, compareWith });
   }, []);
 
+  const handleToggleCompareMode = useCallback(() => {
+    setCompareMode((prev) => {
+      if (prev) {
+        // Exiting compare mode — clear selections
+        setCompareA(null);
+        setCompareB(null);
+      }
+      return !prev;
+    });
+  }, []);
+
+  const handleViewDiff = useCallback(() => {
+    if (compareA != null && compareB != null && compareA !== compareB) {
+      setDiffModal({ versionId: compareA, compareWith: compareB });
+    }
+  }, [compareA, compareB]);
+
   const handleRestoreRequest = useCallback((version: DocVersionMeta) => {
     setRestoreVersion(version);
   }, []);
@@ -142,14 +164,23 @@ export function VersionsPanel({
         className={`versions-panel ${open ? 'open' : ''}`}
         role="complementary"
         aria-label="Version History"
-        aria-expanded={open}
       >
         {/* Header */}
         <div className="versions-header">
           <div className="versions-title">Version History</div>
-          <button className="versions-close" onClick={onClose} title="Close">
-            x
-          </button>
+          <div className="versions-header-actions">
+            <button
+              className={`versions-compare-btn ${compareMode ? 'active' : ''}`}
+              onClick={handleToggleCompareMode}
+              disabled={versions.length < 2}
+              title={versions.length < 2 ? 'Need at least 2 versions to compare' : 'Compare two versions'}
+            >
+              Compare
+            </button>
+            <button className="versions-close" onClick={onClose} title="Close" aria-label="Close panel">
+              x
+            </button>
+          </div>
         </div>
 
         {/* Filter tabs */}
@@ -173,6 +204,51 @@ export function VersionsPanel({
             Unnamed<span className="versions-tab-count">({stats.unnamed})</span>
           </button>
         </div>
+
+        {/* Compare bar (visible in compare mode) */}
+        {compareMode && (
+          <div className="versions-compare-bar">
+            <div className="versions-compare-selects">
+              <div className="versions-compare-field">
+                <label className="versions-compare-label">Version A</label>
+                <select
+                  className="versions-compare-select"
+                  value={compareA ?? ''}
+                  onChange={(e) => setCompareA(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">Select version...</option>
+                  {versions.map((v) => (
+                    <option key={v.id} value={v.id} disabled={v.id === compareB}>
+                      v{v.versionNumber}{v.name ? ` — ${v.name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="versions-compare-field">
+                <label className="versions-compare-label">Version B</label>
+                <select
+                  className="versions-compare-select"
+                  value={compareB ?? ''}
+                  onChange={(e) => setCompareB(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">Select version...</option>
+                  {versions.map((v) => (
+                    <option key={v.id} value={v.id} disabled={v.id === compareA}>
+                      v{v.versionNumber}{v.name ? ` — ${v.name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <button
+              className="versions-compare-view-btn"
+              onClick={handleViewDiff}
+              disabled={compareA == null || compareB == null || compareA === compareB}
+            >
+              View Diff
+            </button>
+          </div>
+        )}
 
         {/* Version list */}
         <div className="versions-list">
@@ -258,3 +334,5 @@ export function VersionsPanel({
     </>
   );
 }
+
+export const VersionsPanel = memo(VersionsPanelInner);

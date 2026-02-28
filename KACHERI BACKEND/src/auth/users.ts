@@ -5,7 +5,7 @@
  */
 
 import crypto from 'crypto';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import { hashPassword, comparePassword } from './passwords';
 
 export interface User {
@@ -35,12 +35,12 @@ export interface CreateUserInput {
 
 export interface UserStore {
   create(input: CreateUserInput): Promise<User>;
-  findById(id: string): User | null;
-  findByEmail(email: string): User | null;
+  findById(id: string): Promise<User | undefined>;
+  findByEmail(email: string): Promise<User | undefined>;
   validateCredentials(email: string, password: string): Promise<User | null>;
-  updateDisplayName(id: string, displayName: string): void;
+  updateDisplayName(id: string, displayName: string): Promise<void>;
   updatePassword(id: string, newPassword: string): Promise<void>;
-  updateStatus(id: string, status: User['status']): void;
+  updateStatus(id: string, status: User['status']): Promise<void>;
   toPublic(user: User): PublicUser;
 }
 
@@ -68,9 +68,9 @@ function rowToUser(row: any): User {
 }
 
 /**
- * Create a user store backed by SQLite
+ * Create a user store backed by a DbAdapter
  */
-export function createUserStore(db: Database): UserStore {
+export function createUserStore(db: DbAdapter): UserStore {
   return {
     async create(input: CreateUserInput): Promise<User> {
       const now = Math.floor(Date.now() / 1000);
@@ -78,39 +78,42 @@ export function createUserStore(db: Database): UserStore {
       const passwordHash = await hashPassword(input.password);
 
       // Check if email already exists
-      const existing = db
-        .prepare(`SELECT id FROM users WHERE email = ?`)
-        .get(input.email);
+      const existing = await db.queryOne<{ id: string }>(
+        `SELECT id FROM users WHERE email = ?`,
+        [input.email]
+      );
 
       if (existing) {
         throw new Error('Email already registered');
       }
 
-      db.prepare(
+      await db.run(
         `INSERT INTO users (id, email, password_hash, display_name, avatar_url, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, NULL, 'active', ?, ?)`
-      ).run(id, input.email, passwordHash, input.displayName, now, now);
+         VALUES (?, ?, ?, ?, NULL, 'active', ?, ?)`,
+        [id, input.email, passwordHash, input.displayName, now, now]
+      );
 
-      return this.findById(id)!;
+      return (await this.findById(id))!;
     },
 
-    findById(id: string): User | null {
-      const row = db.prepare(`SELECT * FROM users WHERE id = ?`).get(id);
-      return row ? rowToUser(row) : null;
+    async findById(id: string): Promise<User | undefined> {
+      const row = await db.queryOne<any>(`SELECT * FROM users WHERE id = ?`, [id]);
+      return row ? rowToUser(row) : undefined;
     },
 
-    findByEmail(email: string): User | null {
-      const row = db
-        .prepare(`SELECT * FROM users WHERE email = ?`)
-        .get(email.toLowerCase());
-      return row ? rowToUser(row) : null;
+    async findByEmail(email: string): Promise<User | undefined> {
+      const row = await db.queryOne<any>(
+        `SELECT * FROM users WHERE email = ?`,
+        [email.toLowerCase()]
+      );
+      return row ? rowToUser(row) : undefined;
     },
 
     async validateCredentials(
       email: string,
       password: string
     ): Promise<User | null> {
-      const user = this.findByEmail(email);
+      const user = await this.findByEmail(email);
       if (!user) return null;
 
       if (user.status !== 'active') return null;
@@ -119,27 +122,28 @@ export function createUserStore(db: Database): UserStore {
       return valid ? user : null;
     },
 
-    updateDisplayName(id: string, displayName: string): void {
+    async updateDisplayName(id: string, displayName: string): Promise<void> {
       const now = Math.floor(Date.now() / 1000);
-      db.prepare(
-        `UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?`
-      ).run(displayName, now, id);
+      await db.run(
+        `UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?`,
+        [displayName, now, id]
+      );
     },
 
     async updatePassword(id: string, newPassword: string): Promise<void> {
       const now = Math.floor(Date.now() / 1000);
       const passwordHash = await hashPassword(newPassword);
-      db.prepare(
-        `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`
-      ).run(passwordHash, now, id);
+      await db.run(
+        `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
+        [passwordHash, now, id]
+      );
     },
 
-    updateStatus(id: string, status: User['status']): void {
+    async updateStatus(id: string, status: User['status']): Promise<void> {
       const now = Math.floor(Date.now() / 1000);
-      db.prepare(`UPDATE users SET status = ?, updated_at = ? WHERE id = ?`).run(
-        status,
-        now,
-        id
+      await db.run(
+        `UPDATE users SET status = ?, updated_at = ? WHERE id = ?`,
+        [status, now, id]
       );
     },
 

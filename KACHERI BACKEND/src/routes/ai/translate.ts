@@ -18,6 +18,10 @@ import { wsBroadcast } from '../../realtime/globalHub';
 // Rate limiting
 import { AI_RATE_LIMITS } from '../../middleware/rateLimit';
 
+// Doc-level permission guard
+import { checkDocAccess } from '../../workspace/middleware';
+import { db } from '../../db';
+
 // Language name mapping for system prompts
 const LANGUAGE_NAMES: Record<string, string> = {
   en: 'English',
@@ -78,6 +82,9 @@ export const aiTranslateRoutes: FastifyPluginAsync = async (fastify) => {
       if (!targetLanguage || typeof targetLanguage !== 'string') {
         return reply.code(400).send({ error: 'Missing targetLanguage' });
       }
+
+      // Doc-level permission check (editor+ required for AI operations)
+      if (!checkDocAccess(db, req, reply, docId, 'editor')) return;
 
       // Workspace + user (for WS notifications)
       const workspaceId = (req.headers['x-workspace-id'] as string | undefined)?.toString().trim();
@@ -171,6 +178,8 @@ export const aiTranslateRoutes: FastifyPluginAsync = async (fastify) => {
           docId,
           action: 'ai:translate',
           actor: 'ai',
+          actorId: userId,
+          workspaceId: workspaceId ?? null,
           details: {
             provider: comp.provider,
             model: comp.model,
@@ -181,7 +190,6 @@ export const aiTranslateRoutes: FastifyPluginAsync = async (fastify) => {
             translatedLength: comp.text.length,
             proofHash,
             proofId: proofRow?.id ?? null,
-            workspaceId: workspaceId ?? null,
           },
         });
       } catch {

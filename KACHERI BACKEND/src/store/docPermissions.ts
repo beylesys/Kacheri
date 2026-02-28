@@ -114,12 +114,12 @@ function rowToPermissionMeta(row: DocPermissionRow): DocPermissionMeta {
 /**
  * Get a single doc permission for a user.
  */
-export function getDocPermission(docId: string, userId: string): DocPermission | null {
-  const row = db.prepare(`
+export async function getDocPermission(docId: string, userId: string): Promise<DocPermission | null> {
+  const row = await db.queryOne<DocPermissionRow>(`
     SELECT id, doc_id, user_id, role, granted_by, granted_at
     FROM doc_permissions
     WHERE doc_id = ? AND user_id = ?
-  `).get(docId, userId) as DocPermissionRow | undefined;
+  `, [docId, userId]);
 
   return row ? rowToPermission(row) : null;
 }
@@ -127,13 +127,13 @@ export function getDocPermission(docId: string, userId: string): DocPermission |
 /**
  * List all permissions for a document.
  */
-export function listDocPermissions(docId: string): DocPermissionMeta[] {
-  const rows = db.prepare(`
+export async function listDocPermissions(docId: string): Promise<DocPermissionMeta[]> {
+  const rows = await db.queryAll<DocPermissionRow>(`
     SELECT id, doc_id, user_id, role, granted_by, granted_at
     FROM doc_permissions
     WHERE doc_id = ?
     ORDER BY granted_at ASC
-  `).all(docId) as DocPermissionRow[];
+  `, [docId]);
 
   return rows.map(rowToPermissionMeta);
 }
@@ -142,24 +142,18 @@ export function listDocPermissions(docId: string): DocPermissionMeta[] {
  * Grant a permission to a user on a document.
  * If the user already has a permission, this will fail (use updateDocPermission instead).
  */
-export function grantDocPermission(
+export async function grantDocPermission(
   docId: string,
   userId: string,
   role: DocRole,
   grantedBy: string
-): DocPermissionMeta {
+): Promise<DocPermissionMeta> {
   const now = Date.now();
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO doc_permissions (doc_id, user_id, role, granted_by, granted_at)
-    VALUES (@doc_id, @user_id, @role, @granted_by, @granted_at)
-  `).run({
-    doc_id: docId,
-    user_id: userId,
-    role,
-    granted_by: grantedBy,
-    granted_at: now,
-  });
+    VALUES (?, ?, ?, ?, ?)
+  `, [docId, userId, role, grantedBy, now]);
 
   return {
     docId,
@@ -174,30 +168,26 @@ export function grantDocPermission(
  * Update an existing permission's role.
  * Returns the updated permission, or null if not found.
  */
-export function updateDocPermission(
+export async function updateDocPermission(
   docId: string,
   userId: string,
   role: DocRole
-): DocPermissionMeta | null {
-  const info = db.prepare(`
+): Promise<DocPermissionMeta | null> {
+  const info = await db.run(`
     UPDATE doc_permissions
-    SET role = @role
-    WHERE doc_id = @doc_id AND user_id = @user_id
-  `).run({
-    doc_id: docId,
-    user_id: userId,
-    role,
-  });
+    SET role = ?
+    WHERE doc_id = ? AND user_id = ?
+  `, [role, docId, userId]);
 
   if (info.changes === 0) {
     return null;
   }
 
-  const row = db.prepare(`
+  const row = await db.queryOne<DocPermissionRow>(`
     SELECT id, doc_id, user_id, role, granted_by, granted_at
     FROM doc_permissions
     WHERE doc_id = ? AND user_id = ?
-  `).get(docId, userId) as DocPermissionRow | undefined;
+  `, [docId, userId]);
 
   return row ? rowToPermissionMeta(row) : null;
 }
@@ -206,11 +196,11 @@ export function updateDocPermission(
  * Revoke a user's permission on a document.
  * Returns true if revoked, false if not found.
  */
-export function revokeDocPermission(docId: string, userId: string): boolean {
-  const info = db.prepare(`
+export async function revokeDocPermission(docId: string, userId: string): Promise<boolean> {
+  const info = await db.run(`
     DELETE FROM doc_permissions
     WHERE doc_id = ? AND user_id = ?
-  `).run(docId, userId);
+  `, [docId, userId]);
 
   return (info.changes ?? 0) > 0;
 }
@@ -218,12 +208,12 @@ export function revokeDocPermission(docId: string, userId: string): boolean {
 /**
  * List all doc IDs where a user has explicit permissions.
  */
-export function listDocsWithPermission(userId: string): string[] {
-  const rows = db.prepare(`
+export async function listDocsWithPermission(userId: string): Promise<string[]> {
+  const rows = await db.queryAll<{ doc_id: string }>(`
     SELECT DISTINCT doc_id
     FROM doc_permissions
     WHERE user_id = ?
-  `).all(userId) as Array<{ doc_id: string }>;
+  `, [userId]);
 
   return rows.map(r => r.doc_id);
 }
@@ -232,11 +222,11 @@ export function listDocsWithPermission(userId: string): string[] {
  * Delete all permissions for a document.
  * Called when a document is permanently deleted.
  */
-export function deleteAllDocPermissions(docId: string): number {
-  const info = db.prepare(`
+export async function deleteAllDocPermissions(docId: string): Promise<number> {
+  const info = await db.run(`
     DELETE FROM doc_permissions
     WHERE doc_id = ?
-  `).run(docId);
+  `, [docId]);
 
   return info.changes ?? 0;
 }
@@ -259,26 +249,26 @@ export function deleteAllDocPermissions(docId: string): number {
  * @param getWorkspaceRole - Function to get user's workspace role
  * @returns The effective role, or null if no access
  */
-export function getEffectiveDocRole(
+export async function getEffectiveDocRole(
   docId: string,
   userId: string | null,
-  getWorkspaceRole: (workspaceId: string, userId: string) => WorkspaceRole | null
-): DocRole | null {
+  getWorkspaceRole: (workspaceId: string, userId: string) => WorkspaceRole | null | Promise<WorkspaceRole | null>
+): Promise<DocRole | null> {
   if (!userId) return null;
 
   // 1. Check explicit doc permission (takes precedence)
-  const docPerm = getDocPermission(docId, userId);
+  const docPerm = await getDocPermission(docId, userId);
   if (docPerm) {
     return docPerm.role;
   }
 
   // 2. Get doc to check workspace, workspace_access, and creator
-  const doc = getDocWithCreatorAndAccess(docId);
+  const doc = await getDocWithCreatorAndAccess(docId);
   if (!doc) return null;
 
   // 3. Check workspace_access and workspace role if user is in workspace
   if (doc.workspaceId) {
-    const wsRole = getWorkspaceRole(doc.workspaceId, userId);
+    const wsRole = await getWorkspaceRole(doc.workspaceId, userId);
     if (wsRole) {
       // User IS a workspace member - check workspace_access setting
       if (doc.workspaceAccess) {
@@ -307,20 +297,20 @@ export function getEffectiveDocRole(
 /**
  * Get doc with created_by and workspace_access fields for access resolution.
  */
-function getDocWithCreatorAndAccess(docId: string): {
+async function getDocWithCreatorAndAccess(docId: string): Promise<{
   workspaceId: string | null;
   createdBy: string | null;
   workspaceAccess: string | null;
-} | null {
-  const row = db.prepare(`
-    SELECT workspace_id, created_by, workspace_access
-    FROM docs
-    WHERE id = ? AND deleted_at IS NULL
-  `).get(docId) as {
+} | null> {
+  const row = await db.queryOne<{
     workspace_id: string | null;
     created_by: string | null;
     workspace_access: string | null;
-  } | undefined;
+  }>(`
+    SELECT workspace_id, created_by, workspace_access
+    FROM docs
+    WHERE id = ? AND deleted_at IS NULL
+  `, [docId]);
 
   if (!row) return null;
 

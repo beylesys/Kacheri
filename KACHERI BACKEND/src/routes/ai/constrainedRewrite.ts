@@ -6,6 +6,10 @@ import { recordProvenance } from "../../provenance";
 import { wsBroadcast } from "../../realtime/globalHub";
 import { AI_RATE_LIMITS } from "../../middleware/rateLimit";
 
+// Doc-level permission guard
+import { checkDocAccess } from "../../workspace/middleware";
+import { db } from "../../db";
+
 type Body = {
   fullText: string;
   selection?: { start: number; end: number } | null;
@@ -59,6 +63,9 @@ const constrainedRewriteRoutes: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const rawId = (req.params?.id ?? "") as string;
       const docId = normalizeId(rawId);
+
+      // Doc-level permission check (editor+ required for AI operations)
+      if (!checkDocAccess(db, req, reply, docId, "editor")) return;
 
       const {
         fullText,
@@ -221,6 +228,8 @@ const constrainedRewriteRoutes: FastifyPluginAsync = async (app) => {
           docId,
           action: "ai:rewriteConstrained",
           actor: "ai",
+          actorId: userId,
+          workspaceId: workspaceId ?? null,
           details: {
             selection,
             instructions: instructions.trim(),
@@ -229,7 +238,6 @@ const constrainedRewriteRoutes: FastifyPluginAsync = async (app) => {
             seed: seed ?? null,
             proofHash: `sha256:${afterHash}`,
             proofId: proofRow?.id ?? null,
-            workspaceId: workspaceId ?? null,
             elapsedMs,
             fullTextLength,
             selectionLength,

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;">
+  <title>BEYLE Platform — Settings</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="settings-container">
+    <!-- Header -->
+    <div class="settings-header">
+      <h1>Settings</h1>
+      <span class="version" id="versionLabel"></span>
+    </div>
+
+    <!-- Section: Backend Mode -->
+    <div class="settings-section">
+      <h2>Backend</h2>
+
+      <div class="field">
+        <label>Mode</label>
+        <div class="radio-group">
+          <label>
+            <input type="radio" name="backendMode" value="cloud" id="modeCloud">
+            Cloud
+          </label>
+          <label>
+            <input type="radio" name="backendMode" value="local" id="modeLocal">
+            Local
+          </label>
+        </div>
+      </div>
+
+      <div class="field" id="cloudUrlField">
+        <label for="cloudUrl">Cloud URL</label>
+        <input type="url" id="cloudUrl" placeholder="https://api.beyle.com">
+        <div class="url-validation" id="cloudUrlStatus"></div>
+      </div>
+
+      <div class="field hidden" id="localPortField">
+        <label>Local Port</label>
+        <div class="value-display" id="localPortDisplay">—</div>
+      </div>
+    </div>
+
+    <!-- Section: Enabled Products -->
+    <div class="settings-section">
+      <h2>Products</h2>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="productDocs" value="docs">
+        <label for="productDocs">Kacheri Docs</label>
+      </div>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="productStudio" value="design-studio">
+        <label for="productStudio">Design Studio</label>
+      </div>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="productJaal" value="jaal">
+        <label for="productJaal">BEYLE JAAL</label>
+      </div>
+    </div>
+
+    <!-- Section: JAAL Sync -->
+    <div class="settings-section">
+      <h2>JAAL Sync</h2>
+
+      <div class="field">
+        <label for="jaalApiUrl">API URL</label>
+        <input type="url" id="jaalApiUrl" placeholder="https://api.beyle.com">
+      </div>
+
+      <div class="field">
+        <label for="jaalWorkspaceId">Workspace ID</label>
+        <input type="text" id="jaalWorkspaceId" placeholder="workspace_abc123">
+      </div>
+
+      <div class="field">
+        <label>Personal Access Token</label>
+        <div class="pat-status not-configured" id="patStatus">
+          <span id="patStatusText">Not configured</span>
+        </div>
+        <input type="password" id="jaalPat" placeholder="Enter new PAT (bpat_...)">
+      </div>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="jaalAutoSync" checked>
+        <label for="jaalAutoSync">Auto-sync on session end</label>
+      </div>
+
+      <div class="sync-status" id="syncStatus"></div>
+    </div>
+
+    <!-- Section: Appearance -->
+    <div class="settings-section">
+      <h2>Appearance</h2>
+
+      <div class="field">
+        <label for="appearance">Theme</label>
+        <select id="appearance">
+          <option value="system">System default</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Section: Startup -->
+    <div class="settings-section">
+      <h2>Startup</h2>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="launchAtLogin">
+        <label for="launchAtLogin">Launch at login</label>
+      </div>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="startMinimized">
+        <label for="startMinimized">Start minimized to tray</label>
+      </div>
+    </div>
+
+    <!-- Section: System Tray -->
+    <div class="settings-section">
+      <h2>System Tray</h2>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="trayEnabled" checked>
+        <label for="trayEnabled">Enable tray icon</label>
+      </div>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="closeToTray" checked>
+        <label for="closeToTray">Close to tray instead of quitting</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fixed footer -->
+  <div class="settings-footer">
+    <span class="footer-status" id="footerStatus"></span>
+    <div class="footer-actions">
+      <button type="button" class="btn-secondary" id="btnCancel">Cancel</button>
+      <button type="button" class="btn-primary" id="btnSave">Save</button>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

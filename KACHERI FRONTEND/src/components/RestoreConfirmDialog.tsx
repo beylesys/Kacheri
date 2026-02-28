@@ -1,7 +1,8 @@
 // KACHERI FRONTEND/src/components/RestoreConfirmDialog.tsx
 // Confirmation dialog for restoring a document to a previous version.
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { DocVersionMeta } from '../api/versions';
 
 type Props = {
@@ -17,6 +18,9 @@ export function RestoreConfirmDialog({
   onCancel,
   restoring,
 }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, true);
+
   // Handle Escape key
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -33,11 +37,11 @@ export function RestoreConfirmDialog({
     : `version v${version.versionNumber}`;
 
   return (
-    <div className="restore-dialog-overlay" onClick={restoring ? undefined : onCancel}>
+    <div className="restore-dialog-overlay" onClick={restoring ? undefined : onCancel} role="dialog" aria-modal="true" aria-labelledby="restore-dialog-title" ref={dialogRef}>
       <div className="restore-dialog" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="restore-dialog-header">
-          <h3 className="restore-dialog-title">Restore Version?</h3>
+          <h3 className="restore-dialog-title" id="restore-dialog-title">Restore Version?</h3>
         </div>
 
         {/* Content */}

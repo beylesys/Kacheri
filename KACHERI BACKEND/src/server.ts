@@ -16,7 +16,8 @@ import {
 import { listDocs, getDoc, createDoc, updateDocTitle, updateDocLayout, getDocLayout, deleteDoc, restoreDoc, permanentDeleteDoc, listTrash as listDocsTrash, migrateFromJson, type LayoutSettings, DEFAULT_LAYOUT_SETTINGS } from './store/docs';
 import { recordProvenance, listProvenance } from './provenance';
 import { listProofsForDoc, recordProof } from './provenanceStore';
-import { db, repoPath } from './db';
+import { db, initDb, repoPath } from './db';
+import { getStorage, readArtifactBuffer } from './storage';
 
 // Auth module
 import {
@@ -28,10 +29,15 @@ import {
 
 // Workspace module
 import { createWorkspaceRoutes, registerWorkspaceMiddleware } from './workspace';
-import { hasWorkspaceWriteAccess, hasWorkspaceAdminAccess } from './workspace/middleware';
+import { hasWorkspaceWriteAccess, hasWorkspaceAdminAccess, checkDocAccess, getUserId, requirePlatformAdmin } from './workspace/middleware';
 
 // Rate limiting middleware
 import { registerRateLimit } from './middleware/rateLimit';
+
+// Product module registry (Slices M1 + P3)
+import { isProductEnabled, areAllProductsEnabled, getProductRegistry, isFeatureEnabled } from './modules/registry';
+import { stripDangerousHtml } from './utils/sanitize';
+import { config } from './config';
 
 // --- AI routes (specific first, generic last) ---
 import aiComposeRoutes from './routes/ai/compose';
@@ -50,6 +56,12 @@ import importDocRoutes from './routes/importDoc';
 // Image upload route
 import imageUploadRoutes from './routes/imageUpload';
 
+// Document attachment routes (Phase 2 Sprint 2, Slice 4)
+import docAttachmentRoutes from './routes/docAttachments';
+
+// Document reviewer routes (Phase 2 Sprint 4, Slice 12)
+import docReviewerRoutes from './routes/docReviewers';
+
 // File manager routes
 import filesRoutes from './routes/files';
 
@@ -59,6 +71,12 @@ import aiWatchRoutes from './routes/aiWatch';
 // Audit log routes
 import auditRoutes from './routes/audit';
 import { logAuditEvent } from './store/audit';
+
+// Activity feed routes (Slice S3)
+import activityFeedRoutes from './routes/activityFeed';
+
+// JAAL Research Browser routes (Slice S5)
+import jaalRoutes from './routes/jaal';
 
 // Doc permission routes
 import { createDocPermissionRoutes } from './routes/docPermissions';
@@ -85,8 +103,17 @@ import { createMessageRoutes } from './routes/messages';
 // Notification routes (user alerts)
 import { createNotificationRoutes } from './routes/notifications';
 
+// Notification preference routes (channel preferences per workspace)
+import notificationPreferenceRoutes from './routes/notificationPreferences';
+
+// Workspace AI settings routes (BYOK + model selection)
+import workspaceAiSettingsRoutes from './routes/workspaceAiSettings';
+
 // Invite routes (workspace member invites)
 import { createInviteRoutes } from './routes/invites';
+
+// Platform config endpoint (Slice M3)
+import configRoutes from './routes/config';
 
 // Verification reports routes (Phase 5 - P0.3)
 import verificationReportRoutes from './routes/verificationReports';
@@ -105,11 +132,62 @@ import jobsRoutes from './routes/jobs';
 import { getJobQueue } from './jobs/queue';
 import { registerAllWorkers } from './jobs/workers';
 
+// Document Intelligence: Extraction routes (Slice 4)
+import extractionRoutes from './routes/extraction';
+
+// Document Intelligence: Workspace Extraction Standards routes (Slice 7)
+import extractionStandardsRoutes from './routes/extractionStandards';
+
+// Compliance Checker: Check API routes (Slice A5)
+import complianceRoutes from './routes/compliance';
+
+// Compliance Checker: Policy Management routes (Slice A6)
+import compliancePoliciesRoutes from './routes/compliancePolicies';
+
+// Compliance Checker: Store for pre-export compliance warning (Slice A7)
+import { ComplianceChecksStore } from './store/complianceChecks';
+
+// Clause Library: Clause CRUD routes (Slice B2)
+import clauseRoutes from './routes/clauses';
+
+// Clause Library: Clause Insertion & Usage Tracking routes (Slice B4)
+import clauseInsertRoutes from './routes/clauseInsert';
+
+// Cross-Document Intelligence: Knowledge Graph routes (Slice 8)
+import knowledgeRoutes from './routes/knowledge';
+
+// Redline / Negotiation AI: Session & Round routes (Slice 6)
+import negotiationRoutes from './routes/negotiations';
+
 // Metrics routes (Phase 5 - P5.2)
 import metricsRoutes from './routes/metrics';
 
 // Health routes (Phase 5 - P5.3)
 import healthRoutes from './routes/health';
+
+// Design Studio: Canvas API routes (Slice A3)
+import canvasRoutes from './routes/canvases';
+
+// Design Studio: KCL bundle serving (Slice A6)
+import kclServeRoutes from './routes/kclServe';
+
+// Design Studio: Canvas AI routes — generate, edit, style, conversation (Slice B3)
+import canvasAiRoutes from './routes/canvasAi';
+
+// Design Studio: Frame template routes — CRUD with tag filtering (Slice D9)
+import canvasTemplateRoutes from './routes/canvasTemplates';
+
+// Design Studio: Public embed / widget routes (Slice E5)
+import publicEmbedRoutes from './routes/publicEmbed';
+
+// Cross-product: Canvas frame embedding for Docs (Slice P9)
+import canvasEmbedRoutes from './routes/canvasEmbed';
+
+// Memory Graph: Ingest endpoint (Slice P2)
+import memoryIngestRoutes from './routes/memoryIngest';
+
+// Personal Access Tokens: PAT CRUD routes (Slice P4)
+import { createPatRoutes } from './routes/pat';
 
 // Workspace WebSocket (separate namespace /workspace/:id)
 import { installWorkspaceWs } from './realtime/workspaceWs';
@@ -173,7 +251,7 @@ type ExportSummary = {
 };
 
 async function listDocExports(id: string): Promise<ExportSummary[]> {
-  const rawProofs = listProofsForDoc(id, 200);
+  const rawProofs = await listProofsForDoc(id, 200);
   const out: ExportSummary[] = [];
   const seenPaths = new Set<string>();
 
@@ -199,16 +277,15 @@ async function listDocExports(id: string): Promise<ExportSummary[]> {
 
   for (const p of proofs) {
     const filePath = (p.path ?? '').toString();
+    const storageKey = (p.meta as any)?.storageKey as string | undefined;
     let verified = false, size = 0;
 
-    try {
-      const buf = await fs.readFile(filePath);
+    // Storage-first read with filesystem fallback
+    const buf = await readArtifactBuffer(storageKey ?? null, filePath || null);
+    if (buf) {
       size = buf.byteLength;
       const hash = 'sha256:' + sha256Hex(buf);
       verified = (hash === p.hash);
-    } catch {
-      verified = false;
-      size = 0;
     }
 
     const tsIso = new Date(p.ts).toISOString();
@@ -224,11 +301,13 @@ async function listDocExports(id: string): Promise<ExportSummary[]> {
       runtime: { source: 'db' }
     };
 
+    // Load proof JSON via storage-first read
     const proofFile = (p.meta as any)?.proofFile as string | undefined;
-    if (proofFile) {
+    const proofStorageKey = (p.meta as any)?.storageKey as string | undefined;
+    const proofBuf = await readArtifactBuffer(proofStorageKey ?? null, proofFile ?? null);
+    if (proofBuf) {
       try {
-        const text = await fs.readFile(proofFile, 'utf8');
-        const json = JSON.parse(text);
+        const json = JSON.parse(proofBuf.toString('utf8'));
         sanitizedProof = { ...json, output: { ...json.output, path: undefined } };
       } catch {
         // fall back to sanitizedProof above
@@ -296,7 +375,7 @@ async function listDocExports(id: string): Promise<ExportSummary[]> {
 // --- Provenance bridge ---
 function attachProvenanceBridge(app: FastifyInstance) {
   app.provenance = {
-    record: (packet: ProofPacket) => {
+    record: async (packet: ProofPacket) => {
       try {
         const now = Date.now();
         const docId = packet.docId ?? '';
@@ -320,10 +399,10 @@ function attachProvenanceBridge(app: FastifyInstance) {
         const payloadStr = JSON.stringify(payloadObj);
         const sha = sha256Hex(payloadStr);
 
-        db.prepare(`
-          INSERT INTO proofs (doc_id, type, ts, sha256, path, payload)
-          VALUES (@doc, 'ai:action', @ts, @sha, NULL, @payload)
-        `).run({ doc: docId, ts: now, payload: payloadStr, sha });
+        await db.run(
+          `INSERT INTO proofs (doc_id, type, ts, sha256, path, payload) VALUES (?, 'ai:action', ?, ?, NULL, ?)`,
+          [docId, now, sha, payloadStr]
+        );
       } catch (err) {
         app.log.warn({ err }, 'provenance.record failed (non-fatal)');
       }
@@ -331,8 +410,8 @@ function attachProvenanceBridge(app: FastifyInstance) {
   };
 }
 
-// --- Main ---
-async function main() {
+// --- App Factory (Slice S8: extracted from main() for embedded use) ---
+async function createApp(): Promise<FastifyInstance> {
   // Create Fastify with custom request ID generator for correlation
   const app = Fastify({
     logger: true,
@@ -342,14 +421,26 @@ async function main() {
   // Register observability hooks (request ID, request logging)
   registerObservability(app);
 
-  await app.register(cors, { origin: true });
+  // S17: Wire CORS to config — production uses CORS_ORIGINS env var, dev allows all
+  await app.register(cors, {
+    origin: config.nodeEnv === 'production' ? config.cors.origins : true,
+  });
 
   // Register rate limiting plugin (must be before route registration)
   await registerRateLimit(app);
 
+  // Initialize the database (no-op for SQLite; runs PG migrations for PostgreSQL)
+  await initDb();
+
   // Boot info
-  const dbList = db.prepare('PRAGMA database_list').all() as Array<{ seq: number; name: string; file: string }>;
-  const DB_FILE = dbList.find(r => r.name === 'main')?.file || '(memory/unknown)';
+  let DB_FILE = '(memory/unknown)';
+  if (db.dbType === 'sqlite') {
+    const dbList = await db.queryAll<{ seq: number; name: string; file: string }>('PRAGMA database_list');
+    DB_FILE = dbList.find(r => r.name === 'main')?.file || '(memory/unknown)';
+  } else {
+    console.log('[db] PostgreSQL mode');
+    DB_FILE = '(postgresql)';
+  }
   const authConfig = getAuthConfig();
   app.log.info({
     cwd: process.cwd(),
@@ -359,6 +450,13 @@ async function main() {
     authMode: authConfig.mode,
     devBypass: authConfig.devBypassAuth,
   }, 'Kacheri API boot');
+
+  // Log enabled product modules and feature flags (Slices M1 + P3)
+  const productConfig = getProductRegistry();
+  app.log.info({
+    enabledProducts: productConfig.enabledProducts,
+    memoryGraphEnabled: isFeatureEnabled('memoryGraph'),
+  }, 'Product modules & features');
 
   // Seed dev user in development mode
   if (authConfig.devAutoSeed) {
@@ -381,6 +479,9 @@ async function main() {
   // Register auth routes (/auth/login, /auth/register, etc.)
   app.register(createAuthRoutes(db), { prefix: '/auth' });
 
+  // Register PAT routes (/auth/tokens — create, list, revoke) (Slice P4)
+  app.register(createPatRoutes(db), { prefix: '/auth' });
+
   // Register workspace routes (/workspaces, /workspaces/:id, etc.)
   app.register(createWorkspaceRoutes(db));
 
@@ -390,45 +491,7 @@ async function main() {
   // Install the separate workspace WebSocket route (/workspace/:id)
   installWorkspaceWs(app);
 
-  // --- Register routes (order matters: specific first, generic last) ---
-  app.register(aiComposeRoutes);
-  app.register(aiTranslateRoutes);
-  app.register(rewriteSelectionRoutes);
-  app.register(constrainedRewriteRoutes);
-  app.register(aiDetectFieldsRoutes);  // PDF field detection
-  app.register(aiVerifyRoutes);
-  app.register(providersRoute);      // GET /ai/providers
-  app.register(exportDocxRoutes);
-
-  // Import/Upload (safe to mount before generic AI)
-  app.register(importDocRoutes);
-
-  // Image upload/serve/delete
-  app.register(imageUploadRoutes);
-
-  // File manager (folders + docs + artifacts tree)
-  app.register(filesRoutes);
-
-  // Generic AI doc actions
-  app.register(aiRoutes);            // generic /docs/:id/ai/:action must be last among /docs/:id/ai/*
-
-  // 🌐 Global AI Watch (summary/events/exports + debug endpoints)
-  app.register(aiWatchRoutes);
-
-  // Verification reports routes (Phase 5 - P0.3)
-  app.register(verificationReportRoutes);
-
-  // Proof health routes (Phase 5 - P1.1)
-  app.register(proofHealthRoutes);
-
-  // Workspace AI Safety routes (Phase 5 - P2.1)
-  app.register(workspaceAISafetyRoutes);
-
-  // Artifacts routes (Phase 5 - P4.1)
-  app.register(artifactsRoutes);
-
-  // Jobs routes (Phase 5 - P4.3)
-  app.register(jobsRoutes);
+  // ========== SHARED ROUTES (always registered) ==========
 
   // Metrics routes (Phase 5 - P5.2)
   app.register(metricsRoutes);
@@ -436,26 +499,20 @@ async function main() {
   // Health routes (Phase 5 - P5.3)
   app.register(healthRoutes);
 
+  // Platform config endpoint (Slice M3)
+  app.register(configRoutes);
+
   // Audit log routes (workspace-scoped)
   app.register(auditRoutes);
 
-  // Doc permission routes
-  app.register(createDocPermissionRoutes(db));
+  // Activity feed routes (Slice S3 — cross-product recent activity)
+  app.register(activityFeedRoutes);
 
-  // Comment routes
-  app.register(createCommentRoutes(db));
+  // Artifacts routes (Phase 5 - P4.1)
+  app.register(artifactsRoutes);
 
-  // Version history routes
-  app.register(createVersionRoutes(db));
-
-  // Suggestion routes (track changes)
-  app.register(createSuggestionRoutes(db));
-
-  // Template routes
-  app.register(createTemplateRoutes(db));
-
-  // Doc link routes (cross-doc references and backlinks)
-  app.register(createDocLinkRoutes(db));
+  // Jobs routes (Phase 5 - P4.3)
+  app.register(jobsRoutes);
 
   // Message routes (workspace chat)
   app.register(createMessageRoutes(db));
@@ -463,146 +520,365 @@ async function main() {
   // Notification routes (user alerts)
   app.register(createNotificationRoutes(db));
 
+  // Notification preference routes (channel preferences per workspace)
+  app.register(notificationPreferenceRoutes);
+
+  // Workspace AI settings routes (BYOK + model selection)
+  app.register(workspaceAiSettingsRoutes);
+
   // Invite routes (workspace member invites)
   app.register(createInviteRoutes);
 
+  // ========== DOCS PRODUCT ROUTES (conditional on 'docs' product) ==========
+  if (isProductEnabled('docs')) {
+    // --- AI routes (order matters: specific first, generic last) ---
+    app.register(aiComposeRoutes);
+    app.register(aiTranslateRoutes);
+    app.register(rewriteSelectionRoutes);
+    app.register(constrainedRewriteRoutes);
+    app.register(aiDetectFieldsRoutes);  // PDF field detection
+    app.register(aiVerifyRoutes);
+    app.register(providersRoute);      // GET /ai/providers
+    app.register(exportDocxRoutes);
+
+    // Import/Upload (safe to mount before generic AI)
+    app.register(importDocRoutes);
+
+    // Image upload/serve/delete
+    app.register(imageUploadRoutes);
+
+    // Document attachment upload/list/serve/delete (Phase 2 Sprint 2, Slice 4)
+    app.register(docAttachmentRoutes);
+
+    // Document reviewer assignment routes (Phase 2 Sprint 4, Slice 12)
+    app.register(docReviewerRoutes);
+
+    // File manager (folders + docs + artifacts tree)
+    app.register(filesRoutes);
+
+    // Generic AI doc actions — must be last among /docs/:id/ai/*
+    app.register(aiRoutes);
+
+    // Global AI Watch (summary/events/exports + debug endpoints)
+    app.register(aiWatchRoutes);
+
+    // Verification reports routes (Phase 5 - P0.3)
+    app.register(verificationReportRoutes);
+
+    // Proof health routes (Phase 5 - P1.1)
+    app.register(proofHealthRoutes);
+
+    // Workspace AI Safety routes (Phase 5 - P2.1)
+    app.register(workspaceAISafetyRoutes);
+
+    // Document Intelligence: Extraction routes (Slice 4)
+    app.register(extractionRoutes);
+
+    // Document Intelligence: Workspace Extraction Standards routes (Slice 7)
+    app.register(extractionStandardsRoutes);
+
+    // Compliance Checker: Check API routes (Slice A5)
+    app.register(complianceRoutes);
+
+    // Compliance Checker: Policy Management routes (Slice A6)
+    app.register(compliancePoliciesRoutes);
+
+    // Clause Library: Clause CRUD routes (Slice B2)
+    app.register(clauseRoutes);
+
+    // Clause Library: Clause Insertion & Usage Tracking routes (Slice B4)
+    app.register(clauseInsertRoutes);
+
+    // Cross-Document Intelligence: Knowledge Graph routes (Slice 8)
+    app.register(knowledgeRoutes);
+
+    // Redline / Negotiation AI: Session & Round routes (Slice 6)
+    app.register(negotiationRoutes);
+
+    // Doc permission routes
+    app.register(createDocPermissionRoutes(db));
+
+    // Comment routes
+    app.register(createCommentRoutes(db));
+
+    // Version history routes
+    app.register(createVersionRoutes(db));
+
+    // Suggestion routes (track changes)
+    app.register(createSuggestionRoutes(db));
+
+    // Template routes
+    app.register(createTemplateRoutes(db));
+
+    // Doc link routes (cross-doc references and backlinks)
+    app.register(createDocLinkRoutes(db));
+  }
+
+  // ========== DESIGN STUDIO ROUTES (conditional) ==========
+  if (isProductEnabled('design-studio')) {
+    // Canvas CRUD, Search & Permissions routes (Slice A3)
+    app.register(canvasRoutes);
+
+    // KCL bundle serving — versioned JS/CSS assets (Slice A6)
+    app.register(kclServeRoutes);
+
+    // Canvas AI routes — generate, edit, style, conversation (Slice B3)
+    app.register(canvasAiRoutes);
+
+    // Frame template routes — CRUD with tag filtering (Slice D9)
+    app.register(canvasTemplateRoutes);
+
+    // Public embed / widget routes — publish toggle + public HTML rendering (Slice E5)
+    app.register(publicEmbedRoutes);
+
+    app.log.info('Design Studio product enabled');
+  }
+
+  // ========== JAAL RESEARCH BROWSER ROUTES (conditional) ==========
+  if (isProductEnabled('jaal')) {
+    app.register(jaalRoutes);
+
+    app.log.info('JAAL Research Browser product enabled');
+  }
+
+  // ========== CROSS-PRODUCT ROUTES (requires both Docs + Design Studio) ==========
+  if (areAllProductsEnabled('docs', 'design-studio')) {
+    // Canvas frame embedding in Docs (Slice P9)
+    app.register(canvasEmbedRoutes);
+
+    app.log.info('Cross-product routes enabled (Docs + Design Studio)');
+  }
+
+  // ========== MEMORY GRAPH ROUTES (conditional on memoryGraph feature — Slice P3) ==========
+  if (isFeatureEnabled('memoryGraph')) {
+    // POST /platform/memory/ingest — unified ingest endpoint (Slice P2)
+    // Existing knowledge graph routes (Docs-owned) remain under the Docs
+    // product section above — they are unaffected by this toggle.
+    app.register(memoryIngestRoutes);
+
+    app.log.info('Memory Graph feature enabled');
+  }
+
   const yjsPort = Number(process.env.YJS_PORT || 1234);
 
-  // Index
+  // Index (dynamic based on enabled products — Slice M1)
+  const sharedRoutes = [
+    '/config [GET]',
+    '/health [GET]',
+    '/health/ready [GET]',
+    '/health/live [GET]',
+    '/auth/status',
+    '/auth/register [POST]',
+    '/auth/login [POST]',
+    '/auth/logout [POST]',
+    '/auth/refresh [POST]',
+    '/auth/me',
+    '/auth/tokens [GET, POST]',
+    '/auth/tokens/:id [DELETE]',
+    '/workspaces [GET, POST]',
+    '/workspaces/:id [GET, PATCH, DELETE]',
+    '/workspaces/:id/members [GET, POST]',
+    '/workspaces/:id/members/:userId [PATCH, DELETE]',
+    '/workspaces/:id/audit [GET]',
+    '/workspaces/:id/audit/export [GET]',
+    '/workspaces/:id/audit/stats [GET]',
+    '/workspaces/default',
+    '/workspaces/:id/messages [GET, POST]',
+    '/messages/:id [PATCH, DELETE]',
+    '/notifications [GET]',
+    '/notifications/count [GET]',
+    '/notifications/:id/read [POST]',
+    '/notifications/read-all [POST]',
+    '/notifications/:id [DELETE]',
+    '/workspaces/:id/notification-preferences [GET, PUT]',
+    '/artifacts [GET]',
+    '/artifacts/:id [GET, DELETE]',
+    '/artifacts/stats [GET]',
+    '/artifacts/pending [GET]',
+    '/artifacts/failed [GET]',
+    '/artifacts/:id/verify [POST]',
+    '/jobs [GET, POST]',
+    '/jobs/:id [GET, DELETE]',
+    '/jobs/:id/retry [POST]',
+    '/jobs/stats [GET]',
+    '/jobs/cleanup [POST]',
+    '/metrics [GET]',
+    `WS (Yjs standalone): ws://localhost:${yjsPort}/yjs/<room>`,
+    'WS: /workspace/<id> (on API port)',
+  ];
+
+  const docsRoutes = [
+    '/docs',
+    '/docs/:id',
+    '/docs/:id/permissions [GET, POST]',
+    '/docs/:id/permissions/:userId [PATCH, DELETE]',
+    '/docs/:id/comments [GET, POST]',
+    '/comments/:id [GET, PATCH, DELETE]',
+    '/comments/:id/resolve [POST]',
+    '/comments/:id/reopen [POST]',
+    '/docs/:id/versions [GET, POST]',
+    '/docs/:id/versions/:versionId [GET, PATCH, DELETE]',
+    '/docs/:id/versions/:versionId/diff [GET]',
+    '/docs/:id/restore-version [POST]',
+    '/docs/:id/suggestions [GET, POST]',
+    '/suggestions/:id [GET, PATCH, DELETE]',
+    '/suggestions/:id/accept [POST]',
+    '/suggestions/:id/reject [POST]',
+    '/docs/:id/suggestions/accept-all [POST]',
+    '/docs/:id/suggestions/reject-all [POST]',
+    '/templates [GET]',
+    '/templates/:id [GET]',
+    '/docs/from-template [POST]',
+    '/docs/:id/links [GET, POST]',
+    '/docs/:id/links/:linkId [DELETE]',
+    '/docs/:id/links/sync [PUT]',
+    '/docs/:id/backlinks [GET]',
+    '/docs/import [POST]',
+    '/files/tree',
+    '/files/folder [POST]',
+    '/files/:id [PATCH, DELETE]',
+    '/docs/:id/export/pdf',
+    '/docs/:id/export/docx',
+    '/docs/:id/exports',
+    '/docs/:id/exports/pdf/:file',
+    '/docs/:id/exports/docx/:file',
+    '/docs/:id/attachments [GET, POST]',
+    '/docs/:id/attachments/:attachmentId/file [GET]',
+    '/docs/:id/attachments/:attachmentId [DELETE]',
+    '/docs/:id/reviewers [GET, POST]',
+    '/docs/:id/reviewers/:userId [PATCH, DELETE]',
+    '/docs/:id/provenance [GET, POST]',
+    '/provenance?artifactId=doc-...&action=&limit=&before=&from=&to=',
+    '/docs/:id/ai/compose',
+    '/docs/:id/ai/translate',
+    '/docs/:id/ai/rewriteSelection',
+    '/docs/:id/ai/constrainedRewrite',
+    '/docs/:id/ai/detectFields',
+    '/docs/:id/ai/:action',
+    '/ai/providers',
+    '/docs/:id/extract [POST]',
+    '/docs/:id/extraction [GET, PATCH]',
+    '/docs/:id/extraction/export [GET]',
+    '/docs/:id/extraction/actions [GET, POST]',
+    '/docs/:id/extraction/actions/:actionId [DELETE]',
+    '/workspaces/:id/extraction-standards [GET, POST]',
+    '/workspaces/:id/extraction-standards/:standardId [PATCH, DELETE]',
+    '/docs/:id/compliance/check [POST]',
+    '/docs/:id/compliance [GET]',
+    '/docs/:id/compliance/history [GET]',
+    '/workspaces/:id/compliance-policies [GET, POST]',
+    '/workspaces/:id/compliance-policies/:pid [PATCH, DELETE]',
+    '/workspaces/:id/compliance-policies/templates [GET]',
+    '/workspaces/:id/clauses [GET, POST]',
+    '/workspaces/:id/clauses/:cid [GET, PATCH, DELETE]',
+    '/workspaces/:id/clauses/:cid/versions [GET]',
+    '/workspaces/:id/clauses/:cid/versions/:vid [GET]',
+    '/docs/:id/clauses/insert [POST]',
+    '/workspaces/:id/knowledge/entities [GET]',
+    '/workspaces/:id/knowledge/entities/:eid [GET, PATCH, DELETE]',
+    '/workspaces/:id/knowledge/entities/merge [POST]',
+    '/workspaces/:id/knowledge/relationships [GET]',
+    '/workspaces/:id/knowledge/search [POST] (semantic)',
+    '/workspaces/:id/knowledge/search?q= [GET] (keyword)',
+    '/workspaces/:id/knowledge/index [POST]',
+    '/workspaces/:id/knowledge/cleanup [POST]',
+    '/workspaces/:id/knowledge/status [GET]',
+    '/workspaces/:id/knowledge/summary [GET]',
+    '/docs/:id/entities [GET]',
+    '/docs/:id/related [GET]',
+    '/docs/:id/negotiations [GET, POST]',
+    '/negotiations/:nid [GET, PATCH, DELETE]',
+    '/negotiations/:nid/rounds [GET, POST]',
+    '/negotiations/:nid/rounds/import [POST]',
+    '/negotiations/:nid/rounds/:rid [GET]',
+    '/negotiations/:nid/settle [POST]',
+    '/negotiations/:nid/abandon [POST]',
+    '/workspaces/:wid/negotiations [GET]',
+    '/workspaces/:wid/negotiations/stats [GET]',
+    '/ai/watch/summary',
+    '/ai/watch/events',
+    '/ai/watch/exports-summary',
+    '/docs/:docId/artifacts [GET]',
+    '/docs/:docId/jobs [GET]',
+  ];
+
+  // Design Studio routes will be added here in Slice A3
+  const designStudioRoutes: string[] = [];
+
   app.get('/', async () => ({
     service: 'Kacheri API',
     authMode: authConfig.mode,
+    enabledProducts: productConfig.enabledProducts,
     routes: [
-      '/health',
-      '/auth/status',
-      '/auth/register [POST]',
-      '/auth/login [POST]',
-      '/auth/logout [POST]',
-      '/auth/refresh [POST]',
-      '/auth/me',
-      '/workspaces [GET, POST]',
-      '/workspaces/:id [GET, PATCH, DELETE]',
-      '/workspaces/:id/members [GET, POST]',
-      '/workspaces/:id/members/:userId [PATCH, DELETE]',
-      '/workspaces/:id/audit [GET]',
-      '/workspaces/:id/audit/export [GET]',
-      '/workspaces/:id/audit/stats [GET]',
-      '/workspaces/default',
-      '/docs',
-      '/docs/:id',
-      '/docs/:id/permissions [GET, POST]',
-      '/docs/:id/permissions/:userId [PATCH, DELETE]',
-      '/docs/:id/comments [GET, POST]',
-      '/comments/:id [GET, PATCH, DELETE]',
-      '/comments/:id/resolve [POST]',
-      '/comments/:id/reopen [POST]',
-      '/docs/:id/versions [GET, POST]',
-      '/docs/:id/versions/:versionId [GET, PATCH, DELETE]',
-      '/docs/:id/versions/:versionId/diff [GET]',
-      '/docs/:id/restore-version [POST]',
-      '/docs/:id/suggestions [GET, POST]',
-      '/suggestions/:id [GET, PATCH, DELETE]',
-      '/suggestions/:id/accept [POST]',
-      '/suggestions/:id/reject [POST]',
-      '/docs/:id/suggestions/accept-all [POST]',
-      '/docs/:id/suggestions/reject-all [POST]',
-      '/templates [GET]',
-      '/templates/:id [GET]',
-      '/docs/from-template [POST]',
-      '/docs/:id/links [GET, POST]',
-      '/docs/:id/links/:linkId [DELETE]',
-      '/docs/:id/links/sync [PUT]',
-      '/docs/:id/backlinks [GET]',
-      '/workspaces/:id/messages [GET, POST]',
-      '/messages/:id [PATCH, DELETE]',
-      '/notifications [GET]',
-      '/notifications/count [GET]',
-      '/notifications/:id/read [POST]',
-      '/notifications/read-all [POST]',
-      '/notifications/:id [DELETE]',
-      '/docs/import [POST]',            // advertised
-      '/files/tree',
-      '/files/folder [POST]',
-      '/files/:id [PATCH, DELETE]',
-      '/docs/:id/export/pdf',
-      '/docs/:id/export/docx',
-      '/docs/:id/exports',
-      '/docs/:id/exports/pdf/:file',
-      '/docs/:id/exports/docx/:file',
-      '/docs/:id/provenance [GET, POST]',
-      '/provenance?artifactId=doc-...&action=&limit=&before=&from=&to=',
-      '/docs/:id/ai/compose',
-      '/docs/:id/ai/translate',
-      '/docs/:id/ai/rewriteSelection',
-      '/docs/:id/ai/constrainedRewrite',
-      '/docs/:id/ai/detectFields',
-      '/docs/:id/ai/:action',
-      '/ai/providers',
-      '/ai/watch/summary',
-      '/ai/watch/events',
-      '/ai/watch/exports-summary',
-      '/artifacts [GET]',
-      '/artifacts/:id [GET, DELETE]',
-      '/artifacts/stats [GET]',
-      '/artifacts/pending [GET]',
-      '/artifacts/failed [GET]',
-      '/artifacts/:id/verify [POST]',
-      '/docs/:docId/artifacts [GET]',
-      '/jobs [GET, POST]',
-      '/jobs/:id [GET, DELETE]',
-      '/jobs/:id/retry [POST]',
-      '/jobs/stats [GET]',
-      '/jobs/cleanup [POST]',
-      '/docs/:docId/jobs [GET]',
-      '/metrics [GET]',
-      '/health [GET]',
-      '/health/ready [GET]',
-      '/health/live [GET]',
-      `WS (Yjs standalone): ws://localhost:${yjsPort}/yjs/<room>`,
-      'WS: /workspace/<id> (on API port)'
-    ]
+      ...sharedRoutes,
+      ...(isProductEnabled('docs') ? docsRoutes : []),
+      ...(isProductEnabled('design-studio') ? designStudioRoutes : []),
+    ],
   }));
 
-  // Debug
-  app.get('/__debug/sqlite', async () => {
-    let provCount = 0, proofsCount = 0;
-    try {
-      provCount = (db.prepare('SELECT COUNT(*) as c FROM provenance').get() as { c: number }).c;
-    } catch {}
-    try {
-      proofsCount = (db.prepare('SELECT COUNT(*) as c FROM proofs').get() as { c: number }).c;
-    } catch {}
-    const list = db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>;
-    const dbFile = list.find(x => x.name === 'main')?.file || '(memory/unknown)';
-    return { cwd: process.cwd(), repoRoot: repoPath('.'), dbFile, counts: { provenance: provCount, proofs: proofsCount } };
-  });
+  // Debug (dev only, admin-gated — Slice 8 security hardening)
+  if (process.env.NODE_ENV === 'production') {
+    app.get('/__debug/*', async (_req, reply) => {
+      return reply.code(404).send({ error: 'not_found' });
+    });
+  } else {
+    app.get('/__debug/sqlite', async (req, reply) => {
+      if (!requirePlatformAdmin(req, reply)) return;
+      let provCount = 0, proofsCount = 0;
+      try {
+        const r = await db.queryOne<{ c: number }>('SELECT COUNT(*) as c FROM provenance');
+        provCount = r?.c ?? 0;
+      } catch {}
+      try {
+        const r = await db.queryOne<{ c: number }>('SELECT COUNT(*) as c FROM proofs');
+        proofsCount = r?.c ?? 0;
+      } catch {}
+      let dbFile = '(postgresql)';
+      if (db.dbType === 'sqlite') {
+        const list = await db.queryAll<{ name: string; file: string }>('PRAGMA database_list');
+        dbFile = list.find(x => x.name === 'main')?.file || '(memory/unknown)';
+      }
+      return { cwd: process.cwd(), repoRoot: repoPath('.'), dbFile, counts: { provenance: provCount, proofs: proofsCount } };
+    });
 
-  app.get('/__debug/docIds', async () => {
-    const rows = db.prepare(`
-      SELECT doc_id, COUNT(*) AS n, MAX(ts) AS lastTs
-      FROM provenance
-      GROUP BY doc_id
-      ORDER BY lastTs DESC
-      LIMIT 100
-    `).all() as Array<{ doc_id: string; n: number; lastTs: number }>;
-    return { dbFile: DB_FILE, rows };
-  });
+    app.get('/__debug/docIds', async (req, reply) => {
+      if (!requirePlatformAdmin(req, reply)) return;
+      const rows = await db.queryAll<{ doc_id: string; n: number; lastTs: number }>(`
+        SELECT doc_id, COUNT(*) AS n, MAX(ts) AS lastTs
+        FROM provenance
+        GROUP BY doc_id
+        ORDER BY lastTs DESC
+        LIMIT 100
+      `);
+      return { dbFile: DB_FILE, rows };
+    });
 
-  app.get('/__debug/doc/:id/provRaw', async (req) => {
-    const id = normalizeId((req.params as { id: string }).id);
-    const rows = db.prepare(`
-      SELECT id, doc_id, action, actor, ts, details
-      FROM provenance
-      WHERE doc_id = ?
-      ORDER BY ts DESC, id DESC
-      LIMIT 200
-    `).all(id) as any[];
-    return { dbFile: DB_FILE, id, rows };
-  });
+    app.get('/__debug/doc/:id/provRaw', async (req, reply) => {
+      if (!requirePlatformAdmin(req, reply)) return;
+      const id = normalizeId((req.params as { id: string }).id);
+      const rows = await db.queryAll<any>(`
+        SELECT id, doc_id, action, actor, ts, details
+        FROM provenance
+        WHERE doc_id = ?
+        ORDER BY ts DESC, id DESC
+        LIMIT 200
+      `, [id]);
+      return { dbFile: DB_FILE, id, rows };
+    });
+  }
+
+  // ========== DOCS INLINE ROUTES (conditional on 'docs' product) ==========
+  if (isProductEnabled('docs')) {
 
   // Docs CRUD (workspace-scoped)
-  app.get('/docs', async (req) => {
-    const workspaceId = devWorkspace(req);
+  app.get('/docs', async (req, reply) => {
+    const workspaceId = req.workspaceId;
+    if (!workspaceId) {
+      return reply.code(400).send({ error: 'workspace_required', message: 'X-Workspace-Id header or workspace path required' });
+    }
+    if (!req.workspaceRole) {
+      return reply.code(403).send({ error: 'forbidden', message: 'Not a member of this workspace' });
+    }
     return listDocs(workspaceId);
   });
 
@@ -615,14 +891,14 @@ async function main() {
     }
     const body = (req.body ?? {}) as { title?: string };
     // Pass createdBy for implicit ownership tracking
-    const doc = createDoc(body.title?.trim() || 'Untitled', workspaceId, actorId);
-    recordProvenance({ docId: doc.id, action: 'create', actor: 'human', details: { title: doc.title, workspaceId, devUser: devUser(req) } });
+    const doc = await createDoc(body.title?.trim() || 'Untitled', workspaceId, actorId);
+    recordProvenance({ docId: doc.id, action: 'create', actor: 'human', actorId, workspaceId: workspaceId ?? null, details: { title: doc.title } });
 
     // Log audit event if workspace-scoped
     if (workspaceId) {
       logAuditEvent({
         workspaceId,
-        actorId: devUser(req) || 'user:local',
+        actorId,
         action: 'doc:create',
         targetType: 'doc',
         targetId: doc.id,
@@ -654,7 +930,7 @@ async function main() {
 
     // Create doc with template content
     const docTitle = body.title?.trim() || template.name;
-    const doc = createDoc(docTitle, workspaceId, actorId);
+    const doc = await createDoc(docTitle, workspaceId, actorId);
 
     // Store the template content as the initial Yjs state
     // Note: Content is stored in the template, will be loaded by frontend
@@ -662,7 +938,9 @@ async function main() {
       docId: doc.id,
       action: 'create',
       actor: 'human',
-      details: { title: doc.title, workspaceId, devUser: devUser(req), templateId }
+      actorId,
+      workspaceId: workspaceId ?? null,
+      details: { title: doc.title, templateId }
     });
 
     // Log audit event if workspace-scoped
@@ -686,44 +964,39 @@ async function main() {
   app.get('/docs/:id', async (req, reply) => {
     const raw = (req.params as { id: string }).id;
     const id = normalizeId(raw);
-    const doc = getDoc(id);
+    const doc = await getDoc(id);
     if (!doc) {
       req.log.warn({ rawId: raw, normalized: id }, 'GET /docs/:id not found');
       return reply.code(404).send({ error: 'Not found' });
     }
+    if (!checkDocAccess(db, req, reply, id, 'viewer')) return;
     return doc;
   });
 
   app.patch('/docs/:id', async (req, reply) => {
-    const workspaceId = devWorkspace(req);
-    // Require editor+ role for workspace-scoped doc updates
-    if (workspaceId && !hasWorkspaceWriteAccess(req)) {
-      return reply.code(403).send({ error: 'Requires editor role or higher to update documents' });
-    }
     const raw = (req.params as { id: string }).id;
     const id = normalizeId(raw);
+    if (!checkDocAccess(db, req, reply, id, 'editor')) return;
     const body = (req.body ?? {}) as { title?: string };
     const title = (body.title ?? '').trim();
     if (!title) return reply.code(400).send({ error: 'title required' });
 
-    const updated = updateDocTitle(id, title);
+    const updated = await updateDocTitle(id, title);
     if (!updated) {
       req.log.warn({ rawId: raw, normalized: id }, 'PATCH /docs/:id not found');
       return reply.code(404).send({ error: 'Not found' });
     }
-    recordProvenance({ docId: id, action: 'rename', actor: 'human', details: { title, devUser: devUser(req) } });
+    const actorId = getUserId(req) || 'user:local';
+    const workspaceId = devWorkspace(req);
+    recordProvenance({ docId: id, action: 'rename', actor: 'human', actorId, workspaceId: workspaceId ?? null, details: { title } });
     return updated;
   });
 
   // Update document layout settings
   app.patch('/docs/:id/layout', async (req, reply) => {
-    const workspaceId = devWorkspace(req);
-    // Require editor+ role for workspace-scoped doc updates
-    if (workspaceId && !hasWorkspaceWriteAccess(req)) {
-      return reply.code(403).send({ error: 'Requires editor role or higher to update document layout' });
-    }
     const raw = (req.params as { id: string }).id;
     const id = normalizeId(raw);
+    if (!checkDocAccess(db, req, reply, id, 'editor')) return;
     const body = (req.body ?? {}) as Partial<LayoutSettings>;
 
     // Validate required fields
@@ -757,17 +1030,19 @@ async function main() {
         left: margins.left,
         right: margins.right,
       },
-      header: body.header,
-      footer: body.footer,
+      header: body.header ? { ...body.header, content: body.header.content ? stripDangerousHtml(body.header.content) : body.header.content } : body.header,
+      footer: body.footer ? { ...body.footer, content: body.footer.content ? stripDangerousHtml(body.footer.content) : body.footer.content } : body.footer,
     };
 
-    const updated = updateDocLayout(id, layoutSettings);
+    const updated = await updateDocLayout(id, layoutSettings);
     if (!updated) {
       req.log.warn({ rawId: raw, normalized: id }, 'PATCH /docs/:id/layout not found');
       return reply.code(404).send({ error: 'Not found' });
     }
 
-    recordProvenance({ docId: id, action: 'layout_update', actor: 'human', details: { layoutSettings, devUser: devUser(req) } });
+    const actorId = getUserId(req) || 'user:local';
+    const workspaceId = devWorkspace(req);
+    recordProvenance({ docId: id, action: 'layout_update', actor: 'human', actorId, workspaceId: workspaceId ?? null, details: { layoutSettings } });
     return updated;
   });
 
@@ -775,7 +1050,8 @@ async function main() {
   app.get('/docs/:id/layout', async (req, reply) => {
     const raw = (req.params as { id: string }).id;
     const id = normalizeId(raw);
-    const layout = getDocLayout(id);
+    if (!checkDocAccess(db, req, reply, id, 'viewer')) return;
+    const layout = await getDocLayout(id);
     if (!layout) {
       return reply.code(404).send({ error: 'Not found' });
     }
@@ -783,25 +1059,23 @@ async function main() {
   });
 
   app.delete('/docs/:id', async (req, reply) => {
-    const workspaceId = devWorkspace(req);
-    // Require editor+ role for workspace-scoped doc deletion (soft delete)
-    if (workspaceId && !hasWorkspaceWriteAccess(req)) {
-      return reply.code(403).send({ error: 'Requires editor role or higher to delete documents' });
-    }
     const raw = (req.params as { id: string }).id;
     const id = normalizeId(raw);
-    const ok = deleteDoc(id);
+    if (!checkDocAccess(db, req, reply, id, 'editor')) return;
+    const ok = await deleteDoc(id);
     if (!ok) {
       req.log.warn({ rawId: raw, normalized: id }, 'DELETE /docs/:id not found');
       return reply.code(404).send({ error: 'Not found' });
     }
-    recordProvenance({ docId: id, action: 'delete', actor: 'human', details: { devUser: devUser(req) } });
+    const actorId = getUserId(req) || 'user:local';
+    const workspaceId = devWorkspace(req);
+    recordProvenance({ docId: id, action: 'delete', actor: 'human', actorId, workspaceId: workspaceId ?? null, details: {} });
 
     // Log audit event if workspace-scoped
     if (workspaceId) {
       logAuditEvent({
         workspaceId,
-        actorId: devUser(req) || 'user:local',
+        actorId,
         action: 'doc:delete',
         targetType: 'doc',
         targetId: id,
@@ -812,31 +1086,35 @@ async function main() {
   });
 
   // Trash routes for docs
-  app.get('/docs/trash', async (req) => {
-    const workspaceId = devWorkspace(req);
+  app.get('/docs/trash', async (req, reply) => {
+    const workspaceId = req.workspaceId;
+    if (!workspaceId) {
+      return reply.code(400).send({ error: 'workspace_required', message: 'X-Workspace-Id header or workspace path required' });
+    }
+    if (!req.workspaceRole) {
+      return reply.code(403).send({ error: 'forbidden', message: 'Not a member of this workspace' });
+    }
     return listDocsTrash(workspaceId);
   });
 
   app.post('/docs/:id/restore', async (req, reply) => {
-    const workspaceId = devWorkspace(req);
-    // Require editor+ role for workspace-scoped doc restore
-    if (workspaceId && !hasWorkspaceWriteAccess(req)) {
-      return reply.code(403).send({ error: 'Requires editor role or higher to restore documents' });
-    }
     const raw = (req.params as { id: string }).id;
     const id = normalizeId(raw);
-    const restored = restoreDoc(id);
+    if (!checkDocAccess(db, req, reply, id, 'editor')) return;
+    const restored = await restoreDoc(id);
     if (!restored) {
       req.log.warn({ rawId: raw, normalized: id }, 'POST /docs/:id/restore not found or not in trash');
       return reply.code(404).send({ error: 'Not found or not in trash' });
     }
-    recordProvenance({ docId: id, action: 'restore', actor: 'human', details: { devUser: devUser(req) } });
+    const actorId = getUserId(req) || 'user:local';
+    const workspaceId = devWorkspace(req);
+    recordProvenance({ docId: id, action: 'restore', actor: 'human', actorId, workspaceId: workspaceId ?? null, details: {} });
 
     // Log audit event if workspace-scoped
     if (workspaceId) {
       logAuditEvent({
         workspaceId,
-        actorId: devUser(req) || 'user:local',
+        actorId,
         action: 'doc:restore',
         targetType: 'doc',
         targetId: id,
@@ -848,25 +1126,23 @@ async function main() {
   });
 
   app.delete('/docs/:id/permanent', async (req, reply) => {
-    const workspaceId = devWorkspace(req);
-    // Require admin role for permanent deletion (destructive operation)
-    if (workspaceId && !hasWorkspaceAdminAccess(req)) {
-      return reply.code(403).send({ error: 'Requires admin role to permanently delete documents' });
-    }
     const raw = (req.params as { id: string }).id;
     const id = normalizeId(raw);
-    const ok = permanentDeleteDoc(id);
+    if (!checkDocAccess(db, req, reply, id, 'owner')) return;
+    const ok = await permanentDeleteDoc(id);
     if (!ok) {
       req.log.warn({ rawId: raw, normalized: id }, 'DELETE /docs/:id/permanent not found or not in trash');
       return reply.code(404).send({ error: 'Not found or not in trash' });
     }
-    recordProvenance({ docId: id, action: 'permanent_delete', actor: 'human', details: { devUser: devUser(req) } });
+    const actorId = getUserId(req) || 'user:local';
+    const workspaceId = devWorkspace(req);
+    recordProvenance({ docId: id, action: 'permanent_delete', actor: 'human', actorId, workspaceId: workspaceId ?? null, details: {} });
 
     // Log audit event if workspace-scoped
     if (workspaceId) {
       logAuditEvent({
         workspaceId,
-        actorId: devUser(req) || 'user:local',
+        actorId,
         action: 'doc:permanent_delete',
         targetType: 'doc',
         targetId: id,
@@ -884,14 +1160,15 @@ async function main() {
     const html = (body.html ?? '').toString();
     if (!html) return reply.code(400).send({ error: 'html required' });
 
-    const doc = getDoc(id);
+    const doc = await getDoc(id);
     if (!doc) {
       req.log.warn({ rawId: raw, normalized: id }, 'POST /docs/:id/export/pdf not found');
       return reply.code(404).send({ error: 'Doc not found' });
     }
+    if (!checkDocAccess(db, req, reply, id, 'viewer')) return;
 
     // Get layout settings (with defaults)
-    const layout = getDocLayout(id) ?? DEFAULT_LAYOUT_SETTINGS;
+    const layout = (await getDocLayout(id)) ?? DEFAULT_LAYOUT_SETTINGS;
     const margins = layout.margins;
 
     const pageHtml = `<!doctype html>
@@ -919,22 +1196,49 @@ async function main() {
       },
     };
 
-    // Add header/footer if enabled
-    if (layout.header?.enabled || layout.footer?.enabled) {
+    // --- Page number position mapping ---
+    // Puppeteer limitations (cannot be worked around):
+    //   - Format: always decimal — <span class="pageNumber"> outputs plain integers
+    //   - StartAt: always 1 — Puppeteer has no page offset API
+    //   - Section reset: not supported — only DOCX (Slice A4)
+    // The pageNumberPosition setting controls WHERE the number appears (header vs footer, alignment).
+    const showPageNums = !!(layout.footer?.enabled && layout.footer.showPageNumbers);
+    const pageNumPosition = layout.footer?.pageNumberPosition ?? 'footer-center';
+    const pageNumPlacement = pageNumPosition.startsWith('header-') ? 'header' : 'footer';
+    const pageNumAlign = pageNumPosition.split('-').pop() as 'left' | 'center' | 'right';
+    const pageNumHtml = 'Page <span class="pageNumber"></span> of <span class="totalPages"></span>';
+
+    const needsHeaderFooter = !!(layout.header?.enabled || layout.footer?.enabled || showPageNums);
+    if (needsHeaderFooter) {
       pdfOptions.displayHeaderFooter = true;
 
-      if (layout.header?.enabled) {
-        pdfOptions.headerTemplate = `<div style="font-size:10px;width:100%;text-align:center;padding:0 ${margins.left}mm;">${layout.header.content || ''}</div>`;
+      // --- Header template ---
+      const headerContent = layout.header?.enabled ? (layout.header.content || '') : '';
+      const headerPageNums = showPageNums && pageNumPlacement === 'header';
+      if (headerContent || headerPageNums) {
+        if (headerContent && headerPageNums) {
+          // Header content + page numbers: content centered, page numbers aligned separately
+          pdfOptions.headerTemplate = `<div style="font-size:10px;width:100%;display:flex;justify-content:space-between;padding:0 ${margins.left}mm;"><span>${headerContent}</span><span style="text-align:${pageNumAlign};">${pageNumHtml}</span></div>`;
+        } else if (headerPageNums) {
+          pdfOptions.headerTemplate = `<div style="font-size:10px;width:100%;text-align:${pageNumAlign};padding:0 ${margins.left}mm;">${pageNumHtml}</div>`;
+        } else {
+          pdfOptions.headerTemplate = `<div style="font-size:10px;width:100%;text-align:center;padding:0 ${margins.left}mm;">${headerContent}</div>`;
+        }
       } else {
         pdfOptions.headerTemplate = '<span></span>';
       }
 
-      if (layout.footer?.enabled) {
-        const footerContent = layout.footer.content || '';
-        const pageNumbers = layout.footer.showPageNumbers
-          ? 'Page <span class="pageNumber"></span> of <span class="totalPages"></span>'
-          : '';
-        pdfOptions.footerTemplate = `<div style="font-size:10px;width:100%;text-align:center;padding:0 ${margins.left}mm;">${footerContent}${footerContent && pageNumbers ? ' — ' : ''}${pageNumbers}</div>`;
+      // --- Footer template ---
+      const footerContent = layout.footer?.enabled ? (layout.footer.content || '') : '';
+      const footerPageNums = showPageNums && pageNumPlacement === 'footer';
+      if (footerContent || footerPageNums) {
+        if (footerContent && footerPageNums) {
+          pdfOptions.footerTemplate = `<div style="font-size:10px;width:100%;text-align:${pageNumAlign};padding:0 ${margins.left}mm;">${footerContent} — ${pageNumHtml}</div>`;
+        } else if (footerPageNums) {
+          pdfOptions.footerTemplate = `<div style="font-size:10px;width:100%;text-align:${pageNumAlign};padding:0 ${margins.left}mm;">${pageNumHtml}</div>`;
+        } else {
+          pdfOptions.footerTemplate = `<div style="font-size:10px;width:100%;text-align:center;padding:0 ${margins.left}mm;">${footerContent}</div>`;
+        }
       } else {
         pdfOptions.footerTemplate = '<span></span>';
       }
@@ -985,12 +1289,32 @@ async function main() {
       docId: id,
       action: 'export:pdf',
       actor: 'human',
-      details: { pdfPath, proofPath, actorId, hashes: { html: 'sha256:' + sha256Hex(Buffer.from(html)), pdf: pdfHash } }
+      actorId,
+      workspaceId: workspaceId ?? null,
+      details: { pdfPath, proofPath, hashes: { html: 'sha256:' + sha256Hex(Buffer.from(html)), pdf: pdfHash } }
     });
+
+    // Pre-export compliance status header (Slice A7)
+    // PDF response is binary, so compliance status is communicated via response header.
+    // Non-blocking: export always completes regardless of compliance status.
+    let complianceStatus = 'unknown';
+    if (workspaceId) {
+      try {
+        const latestCheck = await ComplianceChecksStore.getLatest(id);
+        if (latestCheck) {
+          complianceStatus = latestCheck.violations > 0 ? 'failed' : latestCheck.status;
+        } else {
+          complianceStatus = 'unchecked';
+        }
+      } catch {
+        // Non-fatal
+      }
+    }
 
     reply
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="doc-${id}.pdf"`)
+      .header('X-Compliance-Status', complianceStatus)
       .send(pdfBuffer);
   });
 
@@ -998,30 +1322,37 @@ async function main() {
   app.get('/docs/:id/exports/pdf/:file', async (req, reply) => {
     const { id: raw, file } = req.params as { id: string; file: string };
     const id = normalizeId(raw);
+    if (!checkDocAccess(db, req, reply, id, 'viewer')) return;
 
     const safe = path.basename(file);
     if (safe !== file || !/\.pdf$/i.test(safe)) {
       return reply.code(400).send({ error: 'invalid filename' });
     }
 
+    // Look up storage_key from DB for this export
+    const row = await db.queryOne<{ storage_key: string | null; path: string | null }>(
+      `SELECT storage_key, path FROM proofs WHERE doc_id = ? AND kind = 'pdf' AND path LIKE ? ORDER BY ts DESC LIMIT 1`,
+      [id, `%${safe}`]
+    );
+
     const dir = repoPath('storage', 'exports', `doc-${id}`);
     const full = path.join(dir, safe);
 
-    try {
-      const buf = await fs.readFile(full);
+    const buf = await readArtifactBuffer(row?.storage_key ?? null, row?.path ?? full);
+    if (buf) {
       return reply
         .type('application/pdf')
         .header('Content-Disposition', `attachment; filename="${safe}"`)
         .send(buf);
-    } catch {
-      return reply.code(404).send({ error: 'Not found' });
     }
+    return reply.code(404).send({ error: 'Not found' });
   });
 
   // Download a previously exported DOCX
   app.get('/docs/:id/exports/docx/:file', async (req, reply) => {
     const { id: raw, file } = req.params as { id: string; file: string };
     const id = normalizeId(raw);
+    if (!checkDocAccess(db, req, reply, id, 'viewer')) return;
 
     const safe = path.basename(file);
     const isDocx = /\.docx$/i.test(safe);
@@ -1029,28 +1360,35 @@ async function main() {
       return reply.code(400).send({ error: 'invalid filename' });
     }
 
+    // Look up storage_key from DB for this export
+    const row = await db.queryOne<{ storage_key: string | null; path: string | null }>(
+      `SELECT storage_key, path FROM proofs WHERE doc_id = ? AND kind = 'docx' AND path LIKE ? ORDER BY ts DESC LIMIT 1`,
+      [id, `%${safe}`]
+    );
+
     const dir = repoPath('storage', 'exports', `doc-${id}`);
     const full = path.join(dir, safe);
 
-    try {
-      const buf = await fs.readFile(full);
+    const buf = await readArtifactBuffer(row?.storage_key ?? null, row?.path ?? full);
+    if (buf) {
       return reply
         .type('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         .header('Content-Disposition', `attachment; filename="${safe}"`)
         .send(buf);
-    } catch {
-      return reply.code(404).send({ error: 'Not found' });
     }
+    return reply.code(404).send({ error: 'Not found' });
   });
 
   // Evidence APIs
-  app.get('/docs/:id/exports', async (req) => {
+  app.get('/docs/:id/exports', async (req, reply) => {
     const id = normalizeId((req.params as { id: string }).id);
+    if (!checkDocAccess(db, req, reply, id, 'viewer')) return;
     return await listDocExports(id);
   });
 
-  app.get('/docs/:id/provenance', async (req) => {
+  app.get('/docs/:id/provenance', async (req, reply) => {
     const id = normalizeId((req.params as { id: string }).id);
+    if (!checkDocAccess(db, req, reply, id, 'viewer')) return;
     const q = req.query as Partial<{ action: string; limit: string | number; before: string | number; from: string | number; to: string | number }>;
     return listProvenance(id, {
       action: q.action,
@@ -1064,6 +1402,7 @@ async function main() {
   // ✅ client can append a provenance row (e.g., ai:apply on Accept)
   app.post('/docs/:id/provenance', async (req, reply) => {
     const id = normalizeId((req.params as { id: string }).id);
+    if (!checkDocAccess(db, req, reply, id, 'editor')) return;
     const body = (req.body ?? {}) as {
       action: string;          // e.g. "ai:apply"
       actor?: string;          // default: x-user-id or "human"
@@ -1074,11 +1413,13 @@ async function main() {
 
     const actorHeader = (req.headers['x-user-id'] as string | undefined)?.toString().trim();
     const actor = body.actor || actorHeader || 'human';
+    const actorId = getUserId(req) || 'user:local';
+    const workspaceId = devWorkspace(req);
 
     const details = { ...(body.details || {}) };
     if (body.preview) (details as any).preview = body.preview;
 
-    const row = recordProvenance({ docId: id, action: body.action, actor, details });
+    const row = await recordProvenance({ docId: id, action: body.action, actor, actorId, workspaceId: workspaceId ?? null, details });
     return reply.send({ ok: true, id: row.id, ts: row.ts });
   });
 
@@ -1095,6 +1436,8 @@ async function main() {
     });
   });
 
+  } // end: isProductEnabled('docs') — inline doc routes
+
   // Start job queue and register workers (Phase 5 - P4.3)
   try {
     registerAllWorkers();
@@ -1105,15 +1448,40 @@ async function main() {
     app.log.warn({ err }, 'Job queue initialization failed (non-fatal)');
   }
 
-  const PORT = Number(process.env.PORT || 4000);
-  await app.listen({ port: PORT, host: '0.0.0.0' });
-  app.log.info({ port: PORT }, 'API listening');
+  return app;
 }
+
+// --- Server Start (Slice S8: separated from createApp for embedded use) ---
+async function startServer(
+  options?: { port?: number; host?: string }
+): Promise<{ app: FastifyInstance; port: number }> {
+  const theApp = await createApp();
+  const port = options?.port ?? Number(process.env.PORT || 4000);
+  const host = options?.host ?? '0.0.0.0';
+  await theApp.listen({ port, host });
+
+  const address = theApp.server.address();
+  const boundPort =
+    typeof address === 'object' && address ? address.port : port;
+  theApp.log.info({ port: boundPort }, 'API listening');
+
+  // Signal embedded host (Electron) via IPC when running as a subprocess
+  if (typeof process.send === 'function') {
+    process.send({ type: 'backend:ready', port: boundPort });
+  }
+
+  return { app: theApp, port: boundPort };
+}
+
+export { createApp, startServer };
 
 // Module-level logger for startup errors
 const startupLogger = createLogger('startup');
 
-main().catch((err) => {
-  startupLogger.fatal({ err }, 'Server startup failed');
-  process.exit(1);
-});
+// Auto-start when running directly (not when imported for embedding)
+if (!process.env.BEYLE_EMBEDDED) {
+  startServer().catch((err) => {
+    startupLogger.fatal({ err }, 'Server startup failed');
+    process.exit(1);
+  });
+}

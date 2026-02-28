@@ -1,6 +1,7 @@
 // KACHERI FRONTEND/src/components/ReportDetailModal.tsx
 // Phase 5 - P0.3: Modal to display full verification report details
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
   AIWatchAPI,
   type VerificationReportFull,
@@ -70,6 +71,8 @@ export default function ReportDetailModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, true);
 
   useEffect(() => {
     async function loadFull() {
@@ -99,13 +102,13 @@ export default function ReportDetailModal({
   const badge = statusBadge(report.status);
 
   return (
-    <div style={backdropStyle} onClick={onClose}>
+    <div style={backdropStyle} onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="report-detail-title" ref={dialogRef}>
       <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div style={headerStyle}>
           <div>
             <div style={titleRowStyle}>
-              <h2 style={titleStyle}>Verification Report</h2>
+              <h2 id="report-detail-title" style={titleStyle}>Verification Report</h2>
               <span
                 style={{
                   display: "inline-block",

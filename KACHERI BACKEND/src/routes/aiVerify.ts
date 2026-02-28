@@ -1,10 +1,10 @@
 // src/routes/aiVerify.ts
 import type { FastifyInstance } from "fastify";
 import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
 import { db, repoPath } from "../db";
 import { composeText } from "../ai/modelRouter";
+import { readArtifactBuffer } from "../storage";
 
 function sha256HexUTF8(s: string) {
   return crypto.createHash("sha256").update(s, "utf8").digest("hex");
@@ -13,8 +13,11 @@ function sha256HexBuf(b: Buffer) {
   return crypto.createHash("sha256").update(b).digest("hex");
 }
 
-function loadPacketFromRow(row: { payload: string | null; meta: string | null }): any | null {
-  // Prefer payload from DB; if missing and meta has proofFile, load JSON from disk.
+async function loadPacketFromRow(row: {
+  payload: string | null;
+  meta: string | null;
+}): Promise<any | null> {
+  // Prefer payload from DB; if missing, resolve via storage client then filesystem.
   const payloadStr = String(row.payload || "");
   if (payloadStr) {
     try { return JSON.parse(payloadStr); } catch { return null; }
@@ -22,13 +25,15 @@ function loadPacketFromRow(row: { payload: string | null; meta: string | null })
   if (row.meta) {
     try {
       const meta = JSON.parse(row.meta);
+      const storageKey = typeof meta?.storageKey === "string" ? meta.storageKey : null;
       const proofFile = typeof meta?.proofFile === "string" ? meta.proofFile : null;
-      if (proofFile) {
-        const abs = path.isAbsolute(proofFile) ? proofFile : repoPath(proofFile);
-        if (fs.existsSync(abs)) {
-          const s = fs.readFileSync(abs, "utf8");
-          try { return JSON.parse(s); } catch { return null; }
-        }
+      const absProofFile = proofFile
+        ? (path.isAbsolute(proofFile) ? proofFile : repoPath(proofFile))
+        : null;
+
+      const buf = await readArtifactBuffer(storageKey, absProofFile);
+      if (buf) {
+        try { return JSON.parse(buf.toString("utf8")); } catch { return null; }
       }
     } catch { /* ignore */ }
   }
@@ -36,22 +41,30 @@ function loadPacketFromRow(row: { payload: string | null; meta: string | null })
 }
 
 async function summarizeCompose(docId?: string, limit = 50, rerun = false) {
-  const where = docId
-    ? "WHERE doc_id = @docId AND (kind = 'ai:compose' OR type = 'ai:compose' OR type = 'ai:action')"
-    : "WHERE (kind = 'ai:compose' OR type = 'ai:compose' OR type = 'ai:action')";
+  let rows: Array<{ id: number; doc_id: string; ts: number; sha256: string | null; payload: string | null; meta: string | null }>;
 
-  const rows = db.prepare(`
-    SELECT id, doc_id, ts, sha256, payload, meta
-    FROM proofs
-    ${where}
-    ORDER BY ts DESC, id DESC
-    LIMIT @limit
-  `).all({ docId, limit }) as Array<{ id: number; doc_id: string; ts: number; sha256: string | null; payload: string | null; meta: string | null }>;
+  if (docId) {
+    rows = await db.queryAll<{ id: number; doc_id: string; ts: number; sha256: string | null; payload: string | null; meta: string | null }>(`
+      SELECT id, doc_id, ts, sha256, payload, meta
+      FROM proofs
+      WHERE doc_id = ? AND (kind = 'ai:compose' OR type = 'ai:compose' OR type = 'ai:action')
+      ORDER BY ts DESC, id DESC
+      LIMIT ?
+    `, [docId, limit]);
+  } else {
+    rows = await db.queryAll<{ id: number; doc_id: string; ts: number; sha256: string | null; payload: string | null; meta: string | null }>(`
+      SELECT id, doc_id, ts, sha256, payload, meta
+      FROM proofs
+      WHERE (kind = 'ai:compose' OR type = 'ai:compose' OR type = 'ai:action')
+      ORDER BY ts DESC, id DESC
+      LIMIT ?
+    `, [limit]);
+  }
 
   let pass = 0, drift = 0, miss = 0;
 
   for (const r of rows) {
-    const packet = loadPacketFromRow(r);
+    const packet = await loadPacketFromRow(r);
     const payloadStr = packet ? JSON.stringify(packet) : "";
     const recordedHash = String(r.sha256 || "");
     const calc = sha256HexUTF8(payloadStr);
@@ -81,23 +94,37 @@ async function summarizeCompose(docId?: string, limit = 50, rerun = false) {
 }
 
 async function summarizeExports(docId?: string, limit = 5000) {
-  type Row = { doc_id: string; kind: string | null; hash: string | null; path: string | null };
-  const rows = db.prepare(`
-    SELECT doc_id, kind, hash, path
-    FROM proofs
-    WHERE kind IN ('docx','pdf') ${docId ? "AND doc_id = @docId" : ""}
-    ORDER BY ts DESC, id DESC
-    LIMIT @limit
-  `).all({ docId, limit }) as Row[];
+  type Row = { doc_id: string; kind: string | null; hash: string | null; path: string | null; storage_key: string | null };
+  let rows: Row[];
+
+  if (docId) {
+    rows = await db.queryAll<Row>(`
+      SELECT doc_id, kind, hash, path, storage_key
+      FROM proofs
+      WHERE kind IN ('docx','pdf') AND doc_id = ?
+      ORDER BY ts DESC, id DESC
+      LIMIT ?
+    `, [docId, limit]);
+  } else {
+    rows = await db.queryAll<Row>(`
+      SELECT doc_id, kind, hash, path, storage_key
+      FROM proofs
+      WHERE kind IN ('docx','pdf')
+      ORDER BY ts DESC, id DESC
+      LIMIT ?
+    `, [limit]);
+  }
 
   let pass = 0, fail = 0, miss = 0;
 
   for (const r of rows) {
     const fileHash = String(r.hash || "");
     const filePath = String(r.path || "");
-    if (!filePath || !fs.existsSync(filePath)) { miss++; continue; }
+
+    const buf = await readArtifactBuffer(r.storage_key, filePath || null);
+    if (!buf) { miss++; continue; }
+
     try {
-      const buf = fs.readFileSync(filePath);
       const calc = "sha256:" + sha256HexBuf(buf);
       if (fileHash && calc === fileHash) pass++; else fail++;
     } catch { fail++; }

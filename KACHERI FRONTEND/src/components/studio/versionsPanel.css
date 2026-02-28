@@ -1,0 +1,437 @@
+/* KACHERI FRONTEND/src/components/studio/versionsPanel.css
+   Design Studio — Canvas Version History Panel (Slice D7)
+   Slideout panel from the right side, follows Docs VersionsPanel conventions.
+*/
+
+/* ============= Panel Container ============= */
+
+.canvas-versions-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg, -4px 0 24px rgba(0, 0, 0, 0.15));
+  z-index: 100;
+  transform: translateX(calc(100% + 16px));
+  transition: transform 0.2s ease-out;
+  overflow: hidden;
+}
+
+.canvas-versions-panel.open {
+  transform: translateX(0);
+}
+
+/* ============= Header ============= */
+
+.canvas-versions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.canvas-versions-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.canvas-versions-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.canvas-versions-close:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ============= Version List ============= */
+
+.canvas-versions-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.canvas-versions-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.canvas-versions-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.canvas-versions-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* ── Loading ── */
+
+.canvas-versions-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.canvas-versions-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--brand-500);
+  border-radius: 50%;
+  animation: cv-spin 0.8s linear infinite;
+}
+
+@keyframes cv-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Error ── */
+
+.canvas-versions-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.canvas-versions-error-text {
+  font-size: 12px;
+  color: var(--red-500, #ef4444);
+  line-height: 1.4;
+}
+
+.canvas-versions-error-retry {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.canvas-versions-error-retry:hover {
+  background: var(--surface);
+}
+
+/* ── Empty state ── */
+
+.canvas-versions-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  flex: 1;
+}
+
+.canvas-versions-empty-icon {
+  font-size: 32px;
+  opacity: 0.25;
+}
+
+.canvas-versions-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.canvas-versions-empty-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 240px;
+}
+
+/* ============= Version Item ============= */
+
+.canvas-version-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.canvas-version-item:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.canvas-version-item-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.canvas-version-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-version-item-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: rgba(124, 92, 255, 0.1);
+  color: var(--brand-500, #7c5cff);
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.canvas-version-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.canvas-version-item-time {
+  white-space: nowrap;
+}
+
+.canvas-version-item-user {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-version-item-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.canvas-version-item:hover .canvas-version-item-actions {
+  opacity: 1;
+}
+
+.canvas-version-item-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.canvas-version-item-btn:hover {
+  background: var(--surface);
+  border-color: var(--brand-400, #a78bfa);
+}
+
+.canvas-version-item-btn--restore {
+  color: var(--brand-500, #7c5cff);
+  border-color: var(--brand-500, #7c5cff);
+}
+
+.canvas-version-item-btn--restore:hover {
+  background: rgba(124, 92, 255, 0.08);
+}
+
+/* ============= Create Section (Footer) ============= */
+
+.canvas-versions-create {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.canvas-versions-create-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: var(--brand-600);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.canvas-versions-create-btn:hover {
+  background: var(--brand-700, #6d4dd4);
+}
+
+.canvas-versions-create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============= Restore Confirm Overlay ============= */
+
+.canvas-versions-restore-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.canvas-versions-restore-dialog {
+  max-width: 400px;
+  width: 90%;
+  background: var(--panel);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.25));
+  overflow: hidden;
+}
+
+.canvas-versions-restore-header {
+  padding: 16px 20px 0;
+}
+
+.canvas-versions-restore-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.canvas-versions-restore-content {
+  padding: 12px 20px 16px;
+}
+
+.canvas-versions-restore-message {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.canvas-versions-restore-info {
+  margin-top: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.canvas-versions-restore-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px 16px;
+}
+
+.canvas-versions-restore-btn {
+  padding: 7px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.canvas-versions-restore-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.canvas-versions-restore-btn--cancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.canvas-versions-restore-btn--cancel:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.canvas-versions-restore-btn--confirm {
+  border: none;
+  background: var(--brand-600);
+  color: #fff;
+}
+
+.canvas-versions-restore-btn--confirm:hover:not(:disabled) {
+  background: var(--brand-700, #6d4dd4);
+}
+
+/* ============= Responsive ============= */
+
+@media (max-width: 1024px) {
+  .canvas-versions-panel {
+    width: 300px;
+  }
+}
+
+@media (max-width: 767px) {
+  .canvas-versions-panel {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 60vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: 12px 12px 0 0;
+    transform: translateY(100%);
+  }
+
+  .canvas-versions-panel.open {
+    transform: translateY(0);
+  }
+}

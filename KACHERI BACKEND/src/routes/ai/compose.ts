@@ -17,6 +17,10 @@ import { wsBroadcast } from '../../realtime/globalHub';
 // Rate limiting
 import { AI_RATE_LIMITS } from '../../middleware/rateLimit';
 
+// Doc-level permission guard
+import { checkDocAccess } from '../../workspace/middleware';
+import { db } from '../../db';
+
 interface ComposeBody {
   prompt: string;
   language?: string;
@@ -53,6 +57,9 @@ export const aiComposeRoutes: FastifyPluginAsync = async (fastify) => {
       if (!prompt || typeof prompt !== 'string') {
         return reply.code(400).send({ error: 'Missing prompt' });
       }
+
+      // Doc-level permission check (editor+ required for AI operations)
+      if (!checkDocAccess(db, req, reply, docId, 'editor')) return;
 
       // Workspace + user (for WS notifications)
       const workspaceId = (req.headers['x-workspace-id'] as string | undefined)?.toString().trim();
@@ -123,6 +130,8 @@ export const aiComposeRoutes: FastifyPluginAsync = async (fastify) => {
           docId,
           action: 'ai:compose',
           actor: 'ai',
+          actorId: userId,
+          workspaceId: workspaceId ?? null,
           details: {
             provider: comp.provider,
             model: comp.model,
@@ -130,7 +139,6 @@ export const aiComposeRoutes: FastifyPluginAsync = async (fastify) => {
             prompt,
             proofHash,
             proofId: proofRow?.id ?? null,
-            workspaceId: workspaceId ?? null,
           },
         });
       } catch {

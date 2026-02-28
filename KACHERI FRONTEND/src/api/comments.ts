@@ -31,6 +31,16 @@ export type ListCommentsOptions = {
   includeDeleted?: boolean;
   includeResolved?: boolean;
   threadId?: string;
+  // Filter options (Phase 2 — Comment Filters)
+  authorId?: string;
+  mentionsUser?: string;
+  unresolvedOnly?: boolean;
+  from?: number;
+  to?: number;
+  search?: string;
+  limit?: number;
+  offset?: number;
+  sortBy?: 'created_at_asc' | 'created_at_desc';
 };
 
 const API_BASE =
@@ -94,17 +104,27 @@ export const commentsApi = {
   /**
    * List all comments for a document.
    * Requires viewer+ access.
+   * Supports filtering by author, mentions, search, date range, and pagination.
    */
   async list(
     docId: string,
     options?: ListCommentsOptions
-  ): Promise<{ comments: Comment[] }> {
+  ): Promise<{ comments: Comment[]; total: number }> {
     const qs = new URLSearchParams();
     if (options?.includeDeleted) qs.set('includeDeleted', 'true');
     if (options?.includeResolved === false) qs.set('includeResolved', 'false');
     if (options?.threadId) qs.set('threadId', options.threadId);
+    if (options?.authorId) qs.set('authorId', options.authorId);
+    if (options?.mentionsUser) qs.set('mentionsUser', options.mentionsUser);
+    if (options?.unresolvedOnly) qs.set('unresolvedOnly', 'true');
+    if (options?.from !== undefined) qs.set('from', options.from.toString());
+    if (options?.to !== undefined) qs.set('to', options.to.toString());
+    if (options?.search) qs.set('search', options.search);
+    if (options?.limit !== undefined) qs.set('limit', options.limit.toString());
+    if (options?.offset !== undefined) qs.set('offset', options.offset.toString());
+    if (options?.sortBy) qs.set('sortBy', options.sortBy);
     const q = qs.toString();
-    return request<{ comments: Comment[] }>(
+    return request<{ comments: Comment[]; total: number }>(
       `/docs/${docId}/comments${q ? `?${q}` : ''}`
     );
   },
@@ -169,6 +189,24 @@ export const commentsApi = {
     return request<{ ok: true; threadId: string }>(
       `/comments/${commentId}/reopen`,
       { method: 'POST' }
+    );
+  },
+
+  /**
+   * Bulk resolve comment threads.
+   * If threadIds is empty/omitted, resolves all unresolved threads.
+   * Requires commenter+ access.
+   */
+  async bulkResolve(
+    docId: string,
+    threadIds?: string[]
+  ): Promise<{ resolved: number; threadIds: string[] }> {
+    return request<{ resolved: number; threadIds: string[] }>(
+      `/docs/${docId}/comments/bulk-resolve`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ threadIds }),
+      }
     );
   },
 };

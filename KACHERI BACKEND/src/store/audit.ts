@@ -24,6 +24,7 @@ export type AuditAction =
   | "comment:delete"
   | "comment:resolve"
   | "comment:reopen"
+  | "comment:bulk_resolve"
   | "version:create"
   | "version:rename"
   | "version:delete"
@@ -34,9 +35,65 @@ export type AuditAction =
   | "suggestion:accept"
   | "suggestion:reject"
   | "suggestion:accept_all"
-  | "suggestion:reject_all";
+  | "suggestion:reject_all"
+  | "negotiation:create"
+  | "negotiation:update"
+  | "negotiation:delete"
+  | "negotiation:round_add"
+  | "negotiation:round_import"
+  | "negotiation:change_accept"
+  | "negotiation:change_reject"
+  | "negotiation:change_counter"
+  | "negotiation:change_update"
+  | "negotiation:change_reset"
+  | "negotiation:change_accept_all"
+  | "negotiation:change_reject_all"
+  | "negotiation:analyze"
+  | "negotiation:counterproposal"
+  | "negotiation:settle"
+  | "negotiation:abandon"
+  | "doc:link:create"
+  | "doc:link:delete"
+  | "doc:links:sync"
+  | "message:create"
+  | "message:update"
+  | "message:delete"
+  | "notification:read"
+  | "notification:read_all"
+  | "notification:delete"
+  | "attachment:upload"
+  | "attachment:delete"
+  | "notification:preference:update"
+  | "reviewer:assign"
+  | "reviewer:unassign"
+  | "reviewer:status_change"
+  | "canvas:create"
+  | "canvas:update"
+  | "canvas:delete"
+  | "canvas:publish"
+  | "canvas:unpublish"
+  | "canvas:permission:grant"
+  | "canvas:permission:update"
+  | "canvas:permission:revoke"
+  | "memory:ingest"
+  | "pat:create"
+  | "pat:revoke"
+  | "canvas:version:create"
+  | "canvas:version:restore"
+  | "canvas:export:create"
+  | "template:create"
+  | "template:update"
+  | "template:delete"
+  | "canvas:embed_whitelist:update"
+  | "workspace:ai_settings:update"
+  | "workspace:ai_settings:delete"
+  | "jaal:session_start"
+  | "jaal:session_end"
+  | "jaal:proof_create"
+  | "jaal:guide_action"
+  | "jaal:browse";
 
-export type AuditTargetType = "user" | "doc" | "folder" | "file" | "workspace" | "comment" | "version" | "suggestion";
+export type AuditTargetType = "user" | "doc" | "folder" | "file" | "workspace" | "comment" | "version" | "suggestion" | "negotiation" | "negotiation_change" | "negotiation_round" | "doc_link" | "doc_links" | "message" | "notification" | "attachment" | "notification_preference" | "reviewer" | "canvas" | "canvas_permission" | "canvas_version" | "canvas_export" | "canvas_template" | "memory_ingest" | "pat" | "jaal_session" | "jaal_proof";
 
 export interface AuditEntry {
   id: number;
@@ -65,51 +122,6 @@ export interface GetAuditLogOptions {
   targetType?: AuditTargetType;
 }
 
-const insertStmt = db.prepare(`
-  INSERT INTO audit_log (workspace_id, actor_id, action, target_type, target_id, details, ts)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
-`);
-
-const selectStmt = db.prepare(`
-  SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
-  FROM audit_log
-  WHERE workspace_id = ?
-  ORDER BY ts DESC
-  LIMIT ?
-`);
-
-const selectBeforeStmt = db.prepare(`
-  SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
-  FROM audit_log
-  WHERE workspace_id = ? AND ts < ?
-  ORDER BY ts DESC
-  LIMIT ?
-`);
-
-const selectWithActionStmt = db.prepare(`
-  SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
-  FROM audit_log
-  WHERE workspace_id = ? AND action = ?
-  ORDER BY ts DESC
-  LIMIT ?
-`);
-
-const selectWithTargetTypeStmt = db.prepare(`
-  SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
-  FROM audit_log
-  WHERE workspace_id = ? AND target_type = ?
-  ORDER BY ts DESC
-  LIMIT ?
-`);
-
-const selectForTargetStmt = db.prepare(`
-  SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
-  FROM audit_log
-  WHERE workspace_id = ? AND target_type = ? AND target_id = ?
-  ORDER BY ts DESC
-  LIMIT ?
-`);
-
 function rowToEntry(row: any): AuditEntry {
   return {
     id: row.id,
@@ -126,7 +138,7 @@ function rowToEntry(row: any): AuditEntry {
 /**
  * Log an audit event. This is fire-and-forget - errors are logged but don't throw.
  */
-export function logAuditEvent(params: LogAuditEventParams): number | null {
+export async function logAuditEvent(params: LogAuditEventParams): Promise<number | null> {
   const {
     workspaceId,
     actorId,
@@ -137,14 +149,19 @@ export function logAuditEvent(params: LogAuditEventParams): number | null {
   } = params;
 
   try {
-    const result = insertStmt.run(
-      workspaceId,
-      actorId,
-      action,
-      targetType ?? null,
-      targetId ?? null,
-      details ? JSON.stringify(details) : null,
-      Date.now()
+    const result = await db.run(
+      `INSERT INTO audit_log (workspace_id, actor_id, action, target_type, target_id, details, ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`,
+      [
+        workspaceId,
+        actorId,
+        action,
+        targetType ?? null,
+        targetId ?? null,
+        details ? JSON.stringify(details) : null,
+        Date.now(),
+      ]
     );
     return result.lastInsertRowid as number;
   } catch (err) {
@@ -156,23 +173,51 @@ export function logAuditEvent(params: LogAuditEventParams): number | null {
 /**
  * Get audit log entries for a workspace.
  */
-export function getAuditLog(
+export async function getAuditLog(
   workspaceId: string,
   options: GetAuditLogOptions = {}
-): AuditEntry[] {
+): Promise<AuditEntry[]> {
   const limit = Math.min(options.limit ?? 50, 200);
 
   try {
     let rows: any[];
 
     if (options.action) {
-      rows = selectWithActionStmt.all(workspaceId, options.action, limit);
+      rows = await db.queryAll(
+        `SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
+         FROM audit_log
+         WHERE workspace_id = ? AND action = ?
+         ORDER BY ts DESC
+         LIMIT ?`,
+        [workspaceId, options.action, limit]
+      );
     } else if (options.targetType) {
-      rows = selectWithTargetTypeStmt.all(workspaceId, options.targetType, limit);
+      rows = await db.queryAll(
+        `SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
+         FROM audit_log
+         WHERE workspace_id = ? AND target_type = ?
+         ORDER BY ts DESC
+         LIMIT ?`,
+        [workspaceId, options.targetType, limit]
+      );
     } else if (options.before) {
-      rows = selectBeforeStmt.all(workspaceId, options.before, limit);
+      rows = await db.queryAll(
+        `SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
+         FROM audit_log
+         WHERE workspace_id = ? AND ts < ?
+         ORDER BY ts DESC
+         LIMIT ?`,
+        [workspaceId, options.before, limit]
+      );
     } else {
-      rows = selectStmt.all(workspaceId, limit);
+      rows = await db.queryAll(
+        `SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
+         FROM audit_log
+         WHERE workspace_id = ?
+         ORDER BY ts DESC
+         LIMIT ?`,
+        [workspaceId, limit]
+      );
     }
 
     return rows.map(rowToEntry);
@@ -185,18 +230,20 @@ export function getAuditLog(
 /**
  * Get audit log entries for a specific target.
  */
-export function getAuditLogForTarget(
+export async function getAuditLogForTarget(
   workspaceId: string,
   targetType: AuditTargetType,
   targetId: string,
   limit: number = 50
-): AuditEntry[] {
+): Promise<AuditEntry[]> {
   try {
-    const rows = selectForTargetStmt.all(
-      workspaceId,
-      targetType,
-      targetId,
-      Math.min(limit, 200)
+    const rows = await db.queryAll(
+      `SELECT id, workspace_id, actor_id, action, target_type, target_id, details, ts
+       FROM audit_log
+       WHERE workspace_id = ? AND target_type = ? AND target_id = ?
+       ORDER BY ts DESC
+       LIMIT ?`,
+      [workspaceId, targetType, targetId, Math.min(limit, 200)]
     );
     return rows.map(rowToEntry);
   } catch (err) {
@@ -208,12 +255,13 @@ export function getAuditLogForTarget(
 /**
  * Count total audit entries for a workspace (for hasMore pagination).
  */
-export function countAuditEntries(workspaceId: string): number {
+export async function countAuditEntries(workspaceId: string): Promise<number> {
   try {
-    const result = db
-      .prepare("SELECT COUNT(*) as count FROM audit_log WHERE workspace_id = ?")
-      .get(workspaceId) as { count: number };
-    return result.count;
+    const result = await db.queryOne<{ count: number }>(
+      "SELECT COUNT(*) as count FROM audit_log WHERE workspace_id = ?",
+      [workspaceId]
+    );
+    return result?.count ?? 0;
   } catch (err) {
     console.error("[audit] Failed to count audit entries:", err);
     return 0;

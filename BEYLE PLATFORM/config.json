@@ -1,0 +1,20 @@
+{
+  "backendMode": "cloud",
+  "cloudUrl": "http://localhost:5173",
+  "localPort": 3001,
+  "enabledProducts": [
+    "docs",
+    "design-studio"
+  ],
+  "window": {
+    "width": 1045,
+    "height": 621,
+    "x": 0,
+    "y": 0,
+    "maximized": false
+  },
+  "tray": {
+    "enabled": true,
+    "closeToTray": true
+  }
+}

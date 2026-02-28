@@ -5,12 +5,12 @@
 
 /* ---------- Job Types ---------- */
 export type JobType =
-  | "export:pdf"
-  | "export:docx"
   | "verify:export"
   | "verify:compose"
-  | "import:file"
-  | "cleanup:orphan";
+  | "reminder:extraction"
+  | "knowledge:index"
+  | "notification:deliver"
+  | "canvas:export";
 
 export type JobStatus =
   | "pending"
@@ -86,22 +86,6 @@ export interface JobQueueEvents {
 }
 
 /* ---------- Payload Types ---------- */
-export interface ExportPdfPayload {
-  docId: string;
-  title: string;
-  html: string;
-  options?: {
-    format?: "A4" | "Letter";
-    margin?: { top?: string; right?: string; bottom?: string; left?: string };
-  };
-}
-
-export interface ExportDocxPayload {
-  docId: string;
-  title: string;
-  html: string;
-}
-
 export interface VerifyExportPayload {
   artifactId: number;
   docId: string;
@@ -115,34 +99,84 @@ export interface VerifyComposePayload {
   promptHash: string;
 }
 
-export interface ImportFilePayload {
+export interface ReminderExtractionPayload {
+  extractionId: string;
+  actionId: string;
   docId: string;
-  filePath: string;
-  fileType: string;
+  fieldPath: string | null;
+  message: string;
+  userId: string;
+  workspaceId?: string;
 }
 
-export interface CleanupOrphanPayload {
-  olderThanDays?: number;
+export interface KnowledgeIndexPayload {
+  workspaceId: string;
+  mode: "full" | "incremental";
+  forceReindex: boolean;
+  userId: string;
 }
 
 /* ---------- Result Types ---------- */
-export interface ExportResult {
-  path: string;
-  hash: string;
-  size: number;
-}
-
 export interface VerifyResult {
   status: "pass" | "fail" | "miss";
   message?: string;
 }
 
-export interface ImportResult {
-  docId: string;
-  imported: boolean;
+export interface ReminderResult {
+  actionId: string;
+  status: "completed" | "skipped" | "error";
+  message?: string;
 }
 
-export interface CleanupResult {
-  deleted: number;
+export interface KnowledgeIndexResult {
+  workspaceId: string;
+  mode: "full" | "incremental";
+  docsProcessed: number;
+  entitiesCreated: number;
+  entitiesReused: number;
+  mentionsCreated: number;
+  normalizationSuggestions: number;
+  autoMerged: number;
+  relationshipsCreated: number;
+  relationshipsUpdated: number;
+  ftsEntitiesSynced: number;
   errors: string[];
+  durationMs: number;
+}
+
+export interface NotificationDeliverPayload {
+  notificationId: number;
+  userId: string;
+  workspaceId: string;
+  notificationType: string;
+  title: string;
+  body: string | null;
+  linkType: string | null;
+  linkId: string | null;
+  actorId: string | null;
+}
+
+export interface NotificationDeliverResult {
+  notificationId: number;
+  channels: Array<{
+    channel: string;
+    status: "delivered" | "skipped" | "failed";
+    error?: string;
+  }>;
+}
+
+/* ---------- Canvas Export ---------- */
+export interface CanvasExportPayload {
+  exportId: string;
+  canvasId: string;
+  format: string;
+  workspaceId: string;
+}
+
+export interface CanvasExportResult {
+  exportId: string;
+  format: string;
+  filePath: string;
+  fileSize: number;
+  proofId: string;
 }

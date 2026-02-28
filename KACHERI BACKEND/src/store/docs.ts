@@ -29,6 +29,10 @@ export interface LayoutSettings {
     content: string;  // HTML content
     height: number;   // mm
     showPageNumbers: boolean;
+    pageNumberFormat?: 'decimal' | 'lowerRoman' | 'upperRoman' | 'lowerAlpha' | 'upperAlpha';
+    pageNumberStartAt?: number;       // override start page number
+    pageNumberPosition?: 'header-left' | 'header-center' | 'header-right' | 'footer-left' | 'footer-center' | 'footer-right';
+    sectionResetPageNumbers?: boolean; // restart numbering at each section break
   };
 }
 
@@ -127,24 +131,24 @@ function rowToDoc(row: DocRow): DocMeta {
  * If workspaceId is provided, only returns docs in that workspace.
  * If workspaceId is null/undefined, returns all docs (for backward compatibility).
  */
-export function listDocs(workspaceId?: string | null): DocMeta[] {
+export async function listDocs(workspaceId?: string | null): Promise<DocMeta[]> {
   let rows: DocRow[];
 
   if (workspaceId) {
-    rows = db.prepare(`
+    rows = await db.queryAll<DocRow>(`
       SELECT id, title, workspace_id, created_by, created_at, updated_at, deleted_at, layout_settings, workspace_access
       FROM docs
       WHERE workspace_id = ? AND deleted_at IS NULL
       ORDER BY updated_at DESC
-    `).all(workspaceId) as DocRow[];
+    `, [workspaceId]);
   } else {
     // Return all non-deleted docs (backward compatibility for unscoped queries)
-    rows = db.prepare(`
+    rows = await db.queryAll<DocRow>(`
       SELECT id, title, workspace_id, created_by, created_at, updated_at, deleted_at, layout_settings, workspace_access
       FROM docs
       WHERE deleted_at IS NULL
       ORDER BY updated_at DESC
-    `).all() as DocRow[];
+    `, []);
   }
 
   return rows.map(rowToDoc);
@@ -154,12 +158,12 @@ export function listDocs(workspaceId?: string | null): DocMeta[] {
  * Get a single non-deleted document by ID.
  * Returns null if not found or if deleted.
  */
-export function getDoc(id: string): DocMeta | null {
-  const row = db.prepare(`
+export async function getDoc(id: string): Promise<DocMeta | null> {
+  const row = await db.queryOne<DocRow>(`
     SELECT id, title, workspace_id, created_by, created_at, updated_at, deleted_at, layout_settings, workspace_access
     FROM docs
     WHERE id = ? AND deleted_at IS NULL
-  `).get(id) as DocRow | undefined;
+  `, [id]);
 
   return row ? rowToDoc(row) : null;
 }
@@ -167,12 +171,12 @@ export function getDoc(id: string): DocMeta | null {
 /**
  * Get a document by ID, including deleted ones (for trash operations).
  */
-export function getDocIncludingDeleted(id: string): (DocMeta & { deletedAt: string | null }) | null {
-  const row = db.prepare(`
+export async function getDocIncludingDeleted(id: string): Promise<(DocMeta & { deletedAt: string | null }) | null> {
+  const row = await db.queryOne<DocRow>(`
     SELECT id, title, workspace_id, created_by, created_at, updated_at, deleted_at, layout_settings, workspace_access
     FROM docs
     WHERE id = ?
-  `).get(id) as DocRow | undefined;
+  `, [id]);
 
   if (!row) return null;
 
@@ -187,25 +191,19 @@ export function getDocIncludingDeleted(id: string): (DocMeta & { deletedAt: stri
  * If workspaceId is provided, the doc is scoped to that workspace.
  * If createdBy is provided, it's stored for implicit ownership.
  */
-export function createDoc(title: string, workspaceId?: string | null, createdBy?: string | null): DocMeta {
+export async function createDoc(title: string, workspaceId?: string | null, createdBy?: string | null): Promise<DocMeta> {
   const id = genId12();
   const now = Date.now();
+  const trimmedTitle = title.trim() || 'Untitled';
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO docs (id, title, workspace_id, created_by, created_at, updated_at)
-    VALUES (@id, @title, @workspace_id, @created_by, @created_at, @updated_at)
-  `).run({
-    id,
-    title: title.trim() || 'Untitled',
-    workspace_id: workspaceId || null,
-    created_by: createdBy || null,
-    created_at: now,
-    updated_at: now,
-  });
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [id, trimmedTitle, workspaceId || null, createdBy || null, now, now]);
 
   return {
     id,
-    title: title.trim() || 'Untitled',
+    title: trimmedTitle,
     workspaceId: workspaceId || null,
     createdBy: createdBy || null,
     createdAt: new Date(now).toISOString(),
@@ -217,18 +215,14 @@ export function createDoc(title: string, workspaceId?: string | null, createdBy?
  * Update a document's title.
  * Returns the updated doc, or null if not found.
  */
-export function updateDocTitle(id: string, title: string): DocMeta | null {
+export async function updateDocTitle(id: string, title: string): Promise<DocMeta | null> {
   const now = Date.now();
 
-  const info = db.prepare(`
+  const info = await db.run(`
     UPDATE docs
-    SET title = @title, updated_at = @updated_at
-    WHERE id = @id
-  `).run({
-    id,
-    title: title.trim(),
-    updated_at: now,
-  });
+    SET title = ?, updated_at = ?
+    WHERE id = ?
+  `, [title.trim(), now, id]);
 
   if (info.changes === 0) {
     return null;
@@ -241,18 +235,14 @@ export function updateDocTitle(id: string, title: string): DocMeta | null {
  * Update a document's workspace assignment.
  * Used when moving a doc to a different workspace.
  */
-export function updateDocWorkspace(id: string, workspaceId: string | null): DocMeta | null {
+export async function updateDocWorkspace(id: string, workspaceId: string | null): Promise<DocMeta | null> {
   const now = Date.now();
 
-  const info = db.prepare(`
+  const info = await db.run(`
     UPDATE docs
-    SET workspace_id = @workspace_id, updated_at = @updated_at
-    WHERE id = @id
-  `).run({
-    id,
-    workspace_id: workspaceId,
-    updated_at: now,
-  });
+    SET workspace_id = ?, updated_at = ?
+    WHERE id = ?
+  `, [workspaceId, now, id]);
 
   if (info.changes === 0) {
     return null;
@@ -265,18 +255,14 @@ export function updateDocWorkspace(id: string, workspaceId: string | null): DocM
  * Update a document's layout settings.
  * Returns the updated doc, or null if not found.
  */
-export function updateDocLayout(id: string, layoutSettings: LayoutSettings): DocMeta | null {
+export async function updateDocLayout(id: string, layoutSettings: LayoutSettings): Promise<DocMeta | null> {
   const now = Date.now();
 
-  const info = db.prepare(`
+  const info = await db.run(`
     UPDATE docs
-    SET layout_settings = @layout_settings, updated_at = @updated_at
-    WHERE id = @id AND deleted_at IS NULL
-  `).run({
-    id,
-    layout_settings: JSON.stringify(layoutSettings),
-    updated_at: now,
-  });
+    SET layout_settings = ?, updated_at = ?
+    WHERE id = ? AND deleted_at IS NULL
+  `, [JSON.stringify(layoutSettings), now, id]);
 
   if (info.changes === 0) {
     return null;
@@ -288,8 +274,8 @@ export function updateDocLayout(id: string, layoutSettings: LayoutSettings): Doc
 /**
  * Get a document's layout settings, with defaults if not set.
  */
-export function getDocLayout(id: string): LayoutSettings | null {
-  const doc = getDoc(id);
+export async function getDocLayout(id: string): Promise<LayoutSettings | null> {
+  const doc = await getDoc(id);
   if (!doc) return null;
   return doc.layoutSettings ?? DEFAULT_LAYOUT_SETTINGS;
 }
@@ -299,10 +285,10 @@ export function getDocLayout(id: string): LayoutSettings | null {
  * This sets the default access level for all workspace members.
  * Returns the updated doc, or null if not found.
  */
-export function updateDocWorkspaceAccess(
+export async function updateDocWorkspaceAccess(
   id: string,
   workspaceAccess: WorkspaceAccessLevel | null
-): DocMeta | null {
+): Promise<DocMeta | null> {
   const now = Date.now();
 
   // Validate the value
@@ -310,15 +296,11 @@ export function updateDocWorkspaceAccess(
     return null;
   }
 
-  const info = db.prepare(`
+  const info = await db.run(`
     UPDATE docs
-    SET workspace_access = @workspace_access, updated_at = @updated_at
-    WHERE id = @id AND deleted_at IS NULL
-  `).run({
-    id,
-    workspace_access: workspaceAccess,
-    updated_at: now,
-  });
+    SET workspace_access = ?, updated_at = ?
+    WHERE id = ? AND deleted_at IS NULL
+  `, [workspaceAccess, now, id]);
 
   if (info.changes === 0) {
     return null;
@@ -332,18 +314,14 @@ export function updateDocWorkspaceAccess(
  * Also soft-deletes any fs_nodes referencing this doc.
  * Returns true if soft-deleted, false if not found or already deleted.
  */
-export function deleteDoc(id: string): boolean {
+export async function deleteDoc(id: string): Promise<boolean> {
   const now = Date.now();
 
-  const info = db.prepare(`
+  const info = await db.run(`
     UPDATE docs
-    SET deleted_at = @deleted_at, updated_at = @updated_at
-    WHERE id = @id AND deleted_at IS NULL
-  `).run({
-    id,
-    deleted_at: now,
-    updated_at: now,
-  });
+    SET deleted_at = ?, updated_at = ?
+    WHERE id = ? AND deleted_at IS NULL
+  `, [now, now, id]);
 
   if ((info.changes ?? 0) > 0) {
     // Also soft-delete any fs_nodes referencing this doc
@@ -359,17 +337,14 @@ export function deleteDoc(id: string): boolean {
  * Also restores any fs_nodes referencing this doc.
  * Returns the restored doc, or null if not found or not deleted.
  */
-export function restoreDoc(id: string): DocMeta | null {
+export async function restoreDoc(id: string): Promise<DocMeta | null> {
   const now = Date.now();
 
-  const info = db.prepare(`
+  const info = await db.run(`
     UPDATE docs
-    SET deleted_at = NULL, updated_at = @updated_at
-    WHERE id = @id AND deleted_at IS NOT NULL
-  `).run({
-    id,
-    updated_at: now,
-  });
+    SET deleted_at = NULL, updated_at = ?
+    WHERE id = ? AND deleted_at IS NOT NULL
+  `, [now, id]);
 
   if (info.changes === 0) {
     return null;
@@ -387,26 +362,26 @@ export function restoreDoc(id: string): DocMeta | null {
  * Cascades: deletes comments, versions, suggestions, and fs_nodes.
  * Returns true if permanently deleted, false if not found or not in trash.
  */
-export function permanentDeleteDoc(id: string): boolean {
+export async function permanentDeleteDoc(id: string): Promise<boolean> {
   // First check if the doc exists and is in trash
-  const doc = db.prepare(`
-    SELECT 1 FROM docs WHERE id = ? AND deleted_at IS NOT NULL LIMIT 1
-  `).get(id);
+  const doc = await db.queryOne<{ id: string }>(`
+    SELECT id FROM docs WHERE id = ? AND deleted_at IS NOT NULL LIMIT 1
+  `, [id]);
 
   if (!doc) {
     return false;
   }
 
   // Delete associated data before deleting the document
-  deleteAllDocComments(id);
+  await deleteAllDocComments(id);
   deleteAllDocVersions(id);
   deleteAllDocSuggestions(id);
   permanentDeleteDocNodes(id);
 
   // Now delete the document itself
-  const info = db.prepare(`
+  const info = await db.run(`
     DELETE FROM docs WHERE id = ? AND deleted_at IS NOT NULL
-  `).run(id);
+  `, [id]);
 
   return (info.changes ?? 0) > 0;
 }
@@ -414,23 +389,23 @@ export function permanentDeleteDoc(id: string): boolean {
 /**
  * List soft-deleted documents in trash, optionally filtered by workspace.
  */
-export function listTrash(workspaceId?: string | null): TrashedDocMeta[] {
+export async function listTrash(workspaceId?: string | null): Promise<TrashedDocMeta[]> {
   let rows: DocRow[];
 
   if (workspaceId) {
-    rows = db.prepare(`
+    rows = await db.queryAll<DocRow>(`
       SELECT id, title, workspace_id, created_by, created_at, updated_at, deleted_at, layout_settings, workspace_access
       FROM docs
       WHERE workspace_id = ? AND deleted_at IS NOT NULL
       ORDER BY deleted_at DESC
-    `).all(workspaceId) as DocRow[];
+    `, [workspaceId]);
   } else {
-    rows = db.prepare(`
+    rows = await db.queryAll<DocRow>(`
       SELECT id, title, workspace_id, created_by, created_at, updated_at, deleted_at, layout_settings, workspace_access
       FROM docs
       WHERE deleted_at IS NOT NULL
       ORDER BY deleted_at DESC
-    `).all() as DocRow[];
+    `, []);
   }
 
   return rows.map(row => ({
@@ -442,10 +417,10 @@ export function listTrash(workspaceId?: string | null): TrashedDocMeta[] {
 /**
  * Check if a non-deleted document exists.
  */
-export function docExists(id: string): boolean {
-  const row = db.prepare(`
-    SELECT 1 FROM docs WHERE id = ? AND deleted_at IS NULL LIMIT 1
-  `).get(id);
+export async function docExists(id: string): Promise<boolean> {
+  const row = await db.queryOne<{ id: string }>(`
+    SELECT id FROM docs WHERE id = ? AND deleted_at IS NULL LIMIT 1
+  `, [id]);
 
   return !!row;
 }
@@ -474,21 +449,14 @@ export async function migrateFromJson(jsonPath: string): Promise<{ migrated: num
       return { migrated: 0, skipped: 0 };
     }
 
-    const insertStmt = db.prepare(`
-      INSERT OR IGNORE INTO docs (id, title, workspace_id, created_at, updated_at)
-      VALUES (@id, @title, NULL, @created_at, @updated_at)
-    `);
-
     for (const doc of docs) {
       const createdAt = doc.createdAt ? new Date(doc.createdAt).getTime() : Date.now();
       const updatedAt = doc.updatedAt ? new Date(doc.updatedAt).getTime() : createdAt;
 
-      const info = insertStmt.run({
-        id: doc.id,
-        title: doc.title || 'Untitled',
-        created_at: createdAt,
-        updated_at: updatedAt,
-      });
+      const info = await db.run(`
+        INSERT OR IGNORE INTO docs (id, title, workspace_id, created_at, updated_at)
+        VALUES (?, ?, NULL, ?, ?)
+      `, [doc.id, doc.title || 'Untitled', createdAt, updatedAt]);
 
       if (info.changes > 0) {
         migrated++;
@@ -513,7 +481,7 @@ export async function migrateFromJson(jsonPath: string): Promise<{ migrated: num
 
 /** @deprecated Use listDocs() instead */
 export async function readDocs(): Promise<DocMeta[]> {
-  return listDocs();
+  return await listDocs();
 }
 
 /** @deprecated Use the sync version instead */

@@ -1,0 +1,399 @@
+/* ── Platform Settings Page — Slice S23 ── */
+
+.platform-settings-page {
+  min-height: 100vh;
+  padding: 32px 24px 40px;
+  padding-top: max(32px, calc(32px + env(safe-area-inset-top, 0px)));
+  padding-bottom: max(40px, calc(72px + env(safe-area-inset-bottom, 0px)));
+  background: radial-gradient(
+    circle at top left,
+    #1f2937 0,
+    #020617 45%,
+    #020617 100%
+  );
+  color: #e5e7eb;
+}
+
+.platform-settings-inner {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+/* ── Header ── */
+
+.platform-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+}
+
+.platform-settings-title {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: #f9fafb;
+  margin: 0;
+}
+
+.platform-settings-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  color: #9ca3af;
+  font-size: 13px;
+  text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.platform-settings-back:hover {
+  background: rgba(148, 163, 184, 0.12);
+  color: #e5e7eb;
+}
+
+/* ── Section Cards ── */
+
+.platform-settings-section {
+  margin-bottom: 24px;
+  padding: 20px 24px;
+  border-radius: var(--radius, 12px);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.platform-settings-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f9fafb;
+  margin: 0 0 16px;
+  letter-spacing: 0.01em;
+}
+
+.platform-settings-section-desc {
+  font-size: 13px;
+  color: #9ca3af;
+  margin: -8px 0 16px;
+  line-height: 1.5;
+}
+
+/* ── Toggle Row ── */
+
+.platform-settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.platform-settings-toggle-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.platform-settings-toggle-row:first-of-type {
+  padding-top: 0;
+}
+
+.platform-settings-toggle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.platform-settings-toggle-name {
+  font-size: 14px;
+  color: #e5e7eb;
+  font-weight: 500;
+}
+
+.platform-settings-toggle-hint {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+/* ── Toggle Switch ── */
+
+.platform-settings-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 22px;
+  margin-left: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 11px;
+  background: rgba(148, 163, 184, 0.25);
+  cursor: pointer;
+  transition: background 200ms ease;
+}
+
+.platform-settings-switch[aria-checked="true"] {
+  background: var(--brand-500, #7c5cff);
+}
+
+.platform-settings-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 200ms ease;
+}
+
+.platform-settings-switch[aria-checked="true"]::after {
+  transform: translateX(18px);
+}
+
+.platform-settings-switch:focus-visible {
+  outline: 2px solid var(--brand-400, #9b7bff);
+  outline-offset: 2px;
+}
+
+.platform-settings-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Select Dropdown ── */
+
+.platform-settings-select {
+  flex-shrink: 0;
+  margin-left: 16px;
+  padding: 6px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: var(--radius-sm, 8px);
+  background: rgba(15, 23, 42, 0.7);
+  color: #e5e7eb;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+  appearance: auto;
+}
+
+.platform-settings-select:focus-visible {
+  outline: 2px solid var(--brand-400, #9b7bff);
+  outline-offset: 2px;
+  border-color: var(--brand-500, #7c5cff);
+}
+
+/* ── Read-Only Info Card (JAAL Privacy) ── */
+
+.platform-settings-info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm, 8px);
+  background: rgba(124, 92, 255, 0.06);
+  border: 1px solid rgba(124, 92, 255, 0.15);
+}
+
+.platform-settings-info-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: var(--brand-400, #9b7bff);
+  margin-top: 1px;
+}
+
+.platform-settings-info-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.platform-settings-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+.platform-settings-info-detail {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.5;
+}
+
+/* ── Privacy Capability Rows ── */
+
+.platform-settings-capability-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.platform-settings-capability-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.platform-settings-capability-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.platform-settings-capability-dot.full {
+  background: var(--green-500, #22c55e);
+}
+
+.platform-settings-capability-dot.partial {
+  background: var(--yellow-500, #f59e0b);
+}
+
+.platform-settings-capability-dot.none {
+  background: #4b5563;
+}
+
+/* ── Status Feedback ── */
+
+.platform-settings-status {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm, 8px);
+  font-size: 13px;
+  text-align: center;
+  transition: opacity 300ms ease;
+}
+
+.platform-settings-status.success {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  color: var(--green-500, #22c55e);
+}
+
+.platform-settings-status.error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: var(--red-500, #ef4444);
+}
+
+/* ── Desktop Redirect Card ── */
+
+.platform-settings-desktop-redirect {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+}
+
+.platform-settings-desktop-card {
+  max-width: 400px;
+  padding: 40px 32px;
+  border-radius: var(--radius, 12px);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.platform-settings-desktop-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--brand-400, #9b7bff);
+  margin: 0 auto 20px;
+}
+
+.platform-settings-desktop-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #f9fafb;
+  margin: 0 0 12px;
+}
+
+.platform-settings-desktop-text {
+  font-size: 14px;
+  color: #9ca3af;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.platform-settings-desktop-kbd {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 0 2px;
+  border-radius: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(148, 163, 184, 0.1);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: #e5e7eb;
+}
+
+/* ── Loading State ── */
+
+.platform-settings-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 767px) {
+  .platform-settings-section {
+    padding: 16px 18px;
+  }
+
+  .platform-settings-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .platform-settings-page {
+    padding-bottom: max(40px, calc(72px + env(safe-area-inset-bottom, 0px)));
+  }
+}
+
+@media (max-width: 420px) {
+  .platform-settings-page {
+    padding: 20px 16px 32px;
+    padding-top: max(20px, calc(20px + env(safe-area-inset-top, 0px)));
+    padding-bottom: max(32px, calc(72px + env(safe-area-inset-bottom, 0px)));
+  }
+
+  .platform-settings-title {
+    font-size: 20px;
+  }
+
+  .platform-settings-section {
+    padding: 14px 14px;
+  }
+
+  .platform-settings-toggle-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .platform-settings-switch {
+    margin-left: 0;
+  }
+
+  .platform-settings-select {
+    margin-left: 0;
+    width: 100%;
+  }
+}

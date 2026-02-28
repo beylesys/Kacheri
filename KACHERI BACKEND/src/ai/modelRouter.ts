@@ -11,6 +11,8 @@ export interface ComposeOptions extends ModelInvocationOptions {
   systemPrompt?: string;
   language?: string;
   maxTokens?: number;
+  /** BYOK: workspace-provided API key. When set, overrides the server env key. */
+  apiKey?: string;
 }
 
 export interface ComposeResult {
@@ -18,6 +20,35 @@ export interface ComposeResult {
   provider: ProviderName;
   model: string;
   raw?: unknown;
+}
+
+/* ------------------------------ retry (Slice 18) ------------------------------ */
+
+const MAX_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1_000;
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = MAX_RETRIES,
+  baseDelayMs: number = RETRY_BASE_DELAY_MS
+): Promise<T> {
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const msg = lastError.message.toLowerCase();
+      if (msg.includes('401') || msg.includes('403') || msg.includes('invalid api key') || msg.includes('authentication')) {
+        throw lastError;
+      }
+      if (attempt < maxRetries) {
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError!;
 }
 
 /* ------------------------------ helpers ------------------------------ */
@@ -103,20 +134,22 @@ export async function composeText(
 
   if (provider === 'openai') {
     const { default: OpenAI } = await import('openai');
-    const client = new OpenAI({ apiKey: config.ai.openaiKey });
+    const client = new OpenAI({ apiKey: opts.apiKey || config.ai.openaiKey });
 
     const model = opts.model || config.ai.model?.openai || 'gpt-4o-mini';
     const userContent = normalizeForOpenAIContent(prompt);
 
-    const resp = await client.chat.completions.create({
-      model,
-      messages: [
-        ...(opts.systemPrompt ? [{ role: 'system' as const, content: opts.systemPrompt }] : []),
-        { role: 'user' as const, content: userContent },
-      ],
-      max_tokens: opts.maxTokens ?? 600,
-      seed: normalizeSeedNumber(opts.seed),
-    });
+    const resp = await withRetry(() =>
+      client.chat.completions.create({
+        model,
+        messages: [
+          ...(opts.systemPrompt ? [{ role: 'system' as const, content: opts.systemPrompt }] : []),
+          { role: 'user' as const, content: userContent },
+        ],
+        max_tokens: opts.maxTokens ?? 600,
+        seed: normalizeSeedNumber(opts.seed),
+      })
+    );
 
     const text = (resp.choices?.[0]?.message?.content ?? '').toString().trim();
     return { text, provider, model, raw: resp };
@@ -124,17 +157,19 @@ export async function composeText(
 
   if (provider === 'anthropic') {
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey: config.ai.anthropicKey });
+    const client = new Anthropic({ apiKey: opts.apiKey || config.ai.anthropicKey });
     const model = opts.model || config.ai.model?.anthropic || 'claude-sonnet-4-5-20250929';
 
-    const resp = await client.messages.create({
-      model,
-      max_tokens: opts.maxTokens ?? 600,
-      system: opts.systemPrompt || undefined,
-      messages: [
-        { role: 'user', content: [{ type: 'text', text: normalizeToText(prompt) }] },
-      ],
-    });
+    const resp = await withRetry(() =>
+      client.messages.create({
+        model,
+        max_tokens: opts.maxTokens ?? 600,
+        system: opts.systemPrompt || undefined,
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: normalizeToText(prompt) }] },
+        ],
+      })
+    );
 
     let text = anthropicBlocksToText((resp as any).content);
     const outputText = (resp as any)?.output_text;
@@ -150,11 +185,14 @@ export async function composeText(
     const client = new Ollama({ host: config.ai.ollamaUrl });
 
     const model = opts.model || config.ai.model?.ollama || 'llama3';
-    const resp = await client.chat({
-      model,
-      messages: [{ role: 'user', content: normalizeToText(prompt) }],
-      options: { temperature: 0.2 },
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const resp: any = await withRetry(() =>
+      client.chat({
+        model,
+        messages: [{ role: 'user', content: normalizeToText(prompt) }],
+        options: { temperature: 0.2 },
+      })
+    );
     const text = (resp?.message?.content ?? '').toString().trim();
     return { text, provider, model, raw: resp };
   }

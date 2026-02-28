@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BEYLE</string>
+    <string name="title_activity_main">BEYLE</string>
+    <string name="package_name">com.beyle.app</string>
+    <string name="custom_url_scheme">com.beyle.app</string>
+</resources>

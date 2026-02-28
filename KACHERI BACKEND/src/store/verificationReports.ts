@@ -101,7 +101,7 @@ function rowToFull(row: ReportRow): VerificationReportFull {
 /**
  * Create a new verification report
  */
-export function createReport(params: CreateReportParams): VerificationReportMeta | null {
+export async function createReport(params: CreateReportParams): Promise<VerificationReportMeta | null> {
   const id = `vr_${nanoid(16)}`;
   const now = Date.now();
   const reportJsonStr = typeof params.reportJson === 'string'
@@ -109,14 +109,14 @@ export function createReport(params: CreateReportParams): VerificationReportMeta
     : JSON.stringify(params.reportJson);
 
   try {
-    db.prepare(`
+    await db.run(`
       INSERT INTO verification_reports (
         id, created_at, status,
         exports_pass, exports_fail, exports_miss,
         compose_pass, compose_drift, compose_miss,
         report_json, triggered_by
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       id,
       now,
       params.status,
@@ -128,9 +128,9 @@ export function createReport(params: CreateReportParams): VerificationReportMeta
       params.composeMiss ?? 0,
       reportJsonStr,
       params.triggeredBy ?? 'cron'
-    );
+    ]);
 
-    return getReport(id);
+    return await getReport(id);
   } catch (err) {
     console.error('[verificationReports] Failed to create report:', err);
     return null;
@@ -140,16 +140,16 @@ export function createReport(params: CreateReportParams): VerificationReportMeta
 /**
  * Get a single report by ID (metadata only)
  */
-export function getReport(id: string): VerificationReportMeta | null {
+export async function getReport(id: string): Promise<VerificationReportMeta | null> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<ReportRow>(`
       SELECT id, created_at, status,
              exports_pass, exports_fail, exports_miss,
              compose_pass, compose_drift, compose_miss,
              triggered_by
       FROM verification_reports
       WHERE id = ?
-    `).get(id) as ReportRow | undefined;
+    `, [id]);
 
     return row ? rowToMeta(row) : null;
   } catch (err) {
@@ -161,11 +161,12 @@ export function getReport(id: string): VerificationReportMeta | null {
 /**
  * Get a single report by ID with full JSON
  */
-export function getReportFull(id: string): VerificationReportFull | null {
+export async function getReportFull(id: string): Promise<VerificationReportFull | null> {
   try {
-    const row = db.prepare(`
-      SELECT * FROM verification_reports WHERE id = ?
-    `).get(id) as ReportRow | undefined;
+    const row = await db.queryOne<ReportRow>(
+      `SELECT * FROM verification_reports WHERE id = ?`,
+      [id]
+    );
 
     return row ? rowToFull(row) : null;
   } catch (err) {
@@ -177,9 +178,9 @@ export function getReportFull(id: string): VerificationReportFull | null {
 /**
  * Get the most recent report
  */
-export function getLatestReport(): VerificationReportMeta | null {
+export async function getLatestReport(): Promise<VerificationReportMeta | null> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<ReportRow>(`
       SELECT id, created_at, status,
              exports_pass, exports_fail, exports_miss,
              compose_pass, compose_drift, compose_miss,
@@ -187,7 +188,7 @@ export function getLatestReport(): VerificationReportMeta | null {
       FROM verification_reports
       ORDER BY created_at DESC
       LIMIT 1
-    `).get() as ReportRow | undefined;
+    `, []);
 
     return row ? rowToMeta(row) : null;
   } catch (err) {
@@ -199,9 +200,9 @@ export function getLatestReport(): VerificationReportMeta | null {
 /**
  * List reports with pagination and optional filtering
  */
-export function listReports(
+export async function listReports(
   options: ListReportsOptions = {}
-): { reports: VerificationReportMeta[]; hasMore: boolean } {
+): Promise<{ reports: VerificationReportMeta[]; hasMore: boolean }> {
   const { limit = 20, before, status } = options;
   const effectiveLimit = Math.min(Math.max(1, limit), 100);
 
@@ -218,7 +219,10 @@ export function listReports(
 
     if (before) {
       // Cursor-based pagination using ID
-      const beforeRow = db.prepare(`SELECT created_at FROM verification_reports WHERE id = ?`).get(before) as { created_at: number } | undefined;
+      const beforeRow = await db.queryOne<{ created_at: number }>(
+        `SELECT created_at FROM verification_reports WHERE id = ?`,
+        [before]
+      );
       if (beforeRow) {
         query += ` AND created_at < ?`;
         params.push(beforeRow.created_at);
@@ -233,7 +237,7 @@ export function listReports(
     query += ` ORDER BY created_at DESC LIMIT ?`;
     params.push(effectiveLimit + 1);
 
-    const rows = db.prepare(query).all(...params) as ReportRow[];
+    const rows = await db.queryAll<ReportRow>(query, params);
     const hasMore = rows.length > effectiveLimit;
     const resultRows = hasMore ? rows.slice(0, effectiveLimit) : rows;
 
@@ -250,9 +254,9 @@ export function listReports(
 /**
  * Delete a report by ID
  */
-export function deleteReport(id: string): boolean {
+export async function deleteReport(id: string): Promise<boolean> {
   try {
-    const info = db.prepare(`DELETE FROM verification_reports WHERE id = ?`).run(id);
+    const info = await db.run(`DELETE FROM verification_reports WHERE id = ?`, [id]);
     return (info.changes ?? 0) > 0;
   } catch (err) {
     console.error('[verificationReports] Failed to delete report:', err);
@@ -265,13 +269,13 @@ export function deleteReport(id: string): boolean {
  * @param days Number of days to retain
  * @returns Number of reports deleted
  */
-export function deleteReportsOlderThan(days: number): number {
+export async function deleteReportsOlderThan(days: number): Promise<number> {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM verification_reports WHERE created_at < ?
-    `).run(cutoff);
+    `, [cutoff]);
 
     const deleted = info.changes ?? 0;
     if (deleted > 0) {
@@ -287,18 +291,18 @@ export function deleteReportsOlderThan(days: number): number {
 /**
  * Get report count (total and by status)
  */
-export function getReportCounts(): {
+export async function getReportCounts(): Promise<{
   total: number;
   pass: number;
   fail: number;
   partial: number;
-} {
+}> {
   try {
-    const rows = db.prepare(`
+    const rows = await db.queryAll<{ status: string; count: number }>(`
       SELECT status, COUNT(*) as count
       FROM verification_reports
       GROUP BY status
-    `).all() as Array<{ status: string; count: number }>;
+    `, []);
 
     const counts = { total: 0, pass: 0, fail: 0, partial: 0 };
     for (const row of rows) {

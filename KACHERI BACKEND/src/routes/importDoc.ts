@@ -7,8 +7,17 @@ import { createHash } from 'crypto';
 import { promises as fs, createReadStream } from 'fs';
 import type { FastifyInstance } from 'fastify';
 import { db, repoPath } from '../db';
-import { writeProofPacket } from '../provenance';
+import { writeProofPacket, recordProvenance } from '../provenance';
 import { recordProof } from '../provenanceStore';
+import { checkDocAccess } from '../workspace/middleware';
+import { createDoc } from '../store/docs';
+import { logAuditEvent } from '../store/audit';
+// Slice 5: Document Intelligence auto-extraction
+import { extractDocument } from '../ai/extractors';
+import { ExtractionsStore } from '../store/extractions';
+// Slice 10: Auto-index integration hook
+import { EntityHarvester } from '../knowledge/entityHarvester';
+import { FtsSync } from '../knowledge/ftsSync';
 
 /* ----------------------------- tiny utils ----------------------------- */
 const sha256 = (buf: Buffer | string) => createHash('sha256').update(buf).digest('hex');
@@ -55,6 +64,19 @@ function rtfToText(rtf: string) {
     .trim();
 }
 function nonEmpty(s?: string | null) { return !!(s && s.trim().length > 0); }
+
+// Slice 5: Convert HTML to plain text for extraction
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /* ---------------- third‑party (lazy CJS to keep ts-node-dev happy) ---------------- */
 const Mammoth = safeRequire('mammoth');                 // DOCX → HTML
@@ -672,14 +694,20 @@ export default fp(async function importDocPlugin(app: FastifyInstance) {
     const sourceHash = sha256(buf);
     const bytes = buf.byteLength;
 
-    // 1) Create doc shell
+    // 1) Create doc shell — direct store call (Slice 7: fixes Vuln #10, no more app.inject bypass)
     const title = filename.replace(/\.[^.]+$/, '');
-    const createRes = await app.inject({ method: 'POST', url: '/docs', payload: { title } });
-    if (createRes.statusCode >= 300) {
-      return reply.code(500).send({ error: 'Failed to create doc', detail: createRes.body });
+    const importWorkspace = (req.workspaceId as string | undefined)
+      || (req.headers?.['x-workspace-id'] as string | undefined)?.toString().trim()
+      || undefined;
+    const importUserId = (req.user as any)?.id as string | undefined;
+    const doc = await createDoc(title, importWorkspace, importUserId);
+    const docId: string = doc.id;
+
+    // Record provenance + audit (mirrors POST /docs handler in server.ts)
+    recordProvenance({ docId, action: 'create', actor: 'human', actorId: importUserId ?? null, workspaceId: importWorkspace ?? null, details: { title, source: 'import' } });
+    if (importWorkspace) {
+      logAuditEvent({ workspaceId: importWorkspace, actorId: importUserId ?? 'system', action: 'doc:create', targetType: 'doc', targetId: docId, details: { title, source: 'import' } });
     }
-    const created = createRes.json() as any;
-    const docId: string = created.id || created.doc?.id;
 
     // Paths now (used by placeholder even if conversion fails)
     const upDir = repoPath('storage', 'uploads', `doc-${docId}`);
@@ -938,6 +966,71 @@ export default fp(async function importDocPlugin(app: FastifyInstance) {
       meta: { filename, sourcePath: path.relative(process.cwd(), sourcePath), tool: (meta as any)?.tool, notes: meta },
     });
 
+    // 4.5) Auto-trigger Document Intelligence extraction (Slice 5)
+    let extractionSummary: {
+      extractionId?: string;
+      documentType?: string;
+      confidence?: number;
+      anomalyCount?: number;
+      error?: string;
+    } | undefined;
+
+    // Only attempt extraction if we have meaningful text (not placeholder)
+    if (hasVisibleText(html) && !(meta as any)?.guarantee) {
+      const plainText = htmlToPlainText(html);
+
+      if (plainText.length > 50) {
+        try {
+          const result = await extractDocument({
+            text: plainText,
+            // Use default provider/model from config
+          });
+
+          // Store extraction
+          const extraction = await ExtractionsStore.create({
+            docId,
+            documentType: result.documentType,
+            typeConfidence: result.typeConfidence,
+            extraction: result.extraction,
+            fieldConfidences: result.fieldConfidences,
+            anomalies: result.anomalies,
+            proofId: undefined,
+            createdBy: 'system:import',
+          });
+
+          extractionSummary = {
+            extractionId: extraction.id,
+            documentType: result.documentType,
+            confidence: result.typeConfidence,
+            anomalyCount: result.anomalies?.length || 0,
+          };
+        } catch (e: any) {
+          // Extraction failure should NOT fail the import
+          extractionSummary = {
+            error: `Extraction failed: ${e?.message || 'Unknown error'}`,
+          };
+          try { (app.log as any)?.warn?.({ err: e }, 'import: auto-extraction failed'); } catch {}
+        }
+      }
+    }
+
+    // 4.6) Slice 10: Auto-index — harvest entities + sync FTS after import
+    if (importWorkspace) {
+      try {
+        // Sync document content to FTS5 for keyword search
+        await FtsSync.syncDoc(docId, importWorkspace, title, html);
+        // Harvest entities if extraction succeeded
+        if (extractionSummary?.extractionId) {
+          const storedExtraction = await ExtractionsStore.getByDocId(docId);
+          if (storedExtraction) {
+            EntityHarvester.harvestFromExtraction(storedExtraction, importWorkspace);
+          }
+        }
+      } catch (hookErr) {
+        try { (app.log as any)?.warn?.({ err: hookErr }, 'import: auto-index hook failed'); } catch {}
+      }
+    }
+
     // 5) Response
     return reply.code(201).send({
       docId,
@@ -947,6 +1040,7 @@ export default fp(async function importDocPlugin(app: FastifyInstance) {
       converted: { path: path.relative(process.cwd(), convPath), sha256: htmlHash },
       html,
       meta,
+      extraction: extractionSummary,
     });
   });
 
@@ -956,6 +1050,10 @@ export default fp(async function importDocPlugin(app: FastifyInstance) {
    */
   app.get('/docs/:id/import/source', async (req: any, reply: any) => {
     const docId = req.params.id;
+
+    // Doc-level permission check (viewer+ required)
+    if (!checkDocAccess(db, req, reply, docId, 'viewer')) return;
+
     const upDir = repoPath('storage', 'uploads', `doc-${docId}`);
 
     try {
@@ -1009,13 +1107,16 @@ export default fp(async function importDocPlugin(app: FastifyInstance) {
   app.get('/docs/:id/import/meta', async (req: any, reply: any) => {
     const docId = req.params.id;
 
+    // Doc-level permission check (viewer+ required)
+    if (!checkDocAccess(db, req, reply, docId, 'viewer')) return;
+
     try {
       // Query proofs table for import proof
-      const proof = db.prepare(`
+      const proof = await db.queryOne<any>(`
         SELECT * FROM proofs
         WHERE doc_id = ? AND kind LIKE 'import:%'
         ORDER BY ts DESC LIMIT 1
-      `).get(docId) as any;
+      `, [docId]);
 
       if (!proof) {
         return reply.code(404).send({ error: 'No import record found for this document' });

@@ -80,8 +80,17 @@ export interface CreateSuggestionParams {
 export interface ListSuggestionsOptions {
   status?: SuggestionStatus;
   authorId?: string;
+  changeType?: ChangeType;
+  from?: number;
+  to?: number;
   limit?: number;
   offset?: number;
+}
+
+// List suggestions result (with total for pagination)
+export interface ListSuggestionsResult {
+  suggestions: SuggestionMeta[];
+  total: number;
 }
 
 // ============================================
@@ -133,7 +142,7 @@ function rowToSuggestionMeta(row: SuggestionRow): SuggestionMeta {
 /**
  * Create a new suggestion.
  */
-export function createSuggestion(params: CreateSuggestionParams): SuggestionMeta | null {
+export async function createSuggestion(params: CreateSuggestionParams): Promise<SuggestionMeta | null> {
   const {
     docId,
     authorId,
@@ -148,21 +157,22 @@ export function createSuggestion(params: CreateSuggestionParams): SuggestionMeta
   const now = Date.now();
 
   try {
-    const result = db.prepare(`
+    const result = await db.run(`
       INSERT INTO suggestions (
         doc_id, author_id, status, change_type,
         from_pos, to_pos, original_text, proposed_text, comment,
         resolved_by, resolved_at, created_at, updated_at
       )
       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
-    `).run(
+      RETURNING id
+    `, [
       docId, authorId, changeType,
       fromPos, toPos, originalText, proposedText, comment,
       now, now
-    );
+    ]);
 
     const suggestionId = result.lastInsertRowid as number;
-    return getSuggestion(suggestionId);
+    return await getSuggestion(suggestionId);
   } catch (err) {
     console.error('[suggestions] Failed to create suggestion:', err);
     return null;
@@ -172,15 +182,15 @@ export function createSuggestion(params: CreateSuggestionParams): SuggestionMeta
 /**
  * Get a single suggestion by ID.
  */
-export function getSuggestion(id: number): SuggestionMeta | null {
+export async function getSuggestion(id: number): Promise<SuggestionMeta | null> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<SuggestionRow>(`
       SELECT id, doc_id, author_id, status, change_type,
              from_pos, to_pos, original_text, proposed_text, comment,
              resolved_by, resolved_at, created_at, updated_at
       FROM suggestions
       WHERE id = ?
-    `).get(id) as SuggestionRow | undefined;
+    `, [id]);
 
     return row ? rowToSuggestionMeta(row) : null;
   } catch (err) {
@@ -192,64 +202,89 @@ export function getSuggestion(id: number): SuggestionMeta | null {
 /**
  * List all suggestions for a document.
  */
-export function listSuggestions(docId: string, options: ListSuggestionsOptions = {}): SuggestionMeta[] {
+export async function listSuggestions(docId: string, options: ListSuggestionsOptions = {}): Promise<ListSuggestionsResult> {
   const {
     status,
     authorId,
+    changeType,
+    from,
+    to,
     limit = 100,
     offset = 0,
   } = options;
 
-  let query = `
-    SELECT id, doc_id, author_id, status, change_type,
-           from_pos, to_pos, original_text, proposed_text, comment,
-           resolved_by, resolved_at, created_at, updated_at
-    FROM suggestions
-    WHERE doc_id = ?
-  `;
-
-  const params: (string | number)[] = [docId];
+  let whereClause = ` WHERE doc_id = ?`;
+  const whereParams: (string | number)[] = [docId];
 
   if (status) {
-    query += ` AND status = ?`;
-    params.push(status);
+    whereClause += ` AND status = ?`;
+    whereParams.push(status);
   }
 
   if (authorId) {
-    query += ` AND author_id = ?`;
-    params.push(authorId);
+    whereClause += ` AND author_id = ?`;
+    whereParams.push(authorId);
   }
 
-  query += ` ORDER BY from_pos ASC, created_at ASC LIMIT ? OFFSET ?`;
-  params.push(limit, offset);
+  if (changeType) {
+    whereClause += ` AND change_type = ?`;
+    whereParams.push(changeType);
+  }
+
+  if (from !== undefined) {
+    whereClause += ` AND created_at >= ?`;
+    whereParams.push(from);
+  }
+
+  if (to !== undefined) {
+    whereClause += ` AND created_at <= ?`;
+    whereParams.push(to);
+  }
 
   try {
-    const rows = db.prepare(query).all(...params) as SuggestionRow[];
-    return rows.map(rowToSuggestionMeta);
+    // Count query (same WHERE, no LIMIT/OFFSET)
+    const countRow = await db.queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM suggestions${whereClause}`,
+      whereParams
+    );
+    const total = countRow?.count ?? 0;
+
+    // Data query with pagination
+    const dataQuery = `
+      SELECT id, doc_id, author_id, status, change_type,
+             from_pos, to_pos, original_text, proposed_text, comment,
+             resolved_by, resolved_at, created_at, updated_at
+      FROM suggestions${whereClause}
+      ORDER BY from_pos ASC, created_at ASC
+      LIMIT ? OFFSET ?
+    `;
+
+    const rows = await db.queryAll<SuggestionRow>(dataQuery, [...whereParams, limit, offset]);
+    return { suggestions: rows.map(rowToSuggestionMeta), total };
   } catch (err) {
     console.error('[suggestions] Failed to list suggestions:', err);
-    return [];
+    return { suggestions: [], total: 0 };
   }
 }
 
 /**
  * Update a suggestion's comment.
  */
-export function updateSuggestionComment(id: number, comment: string | null): SuggestionMeta | null {
+export async function updateSuggestionComment(id: number, comment: string | null): Promise<SuggestionMeta | null> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE suggestions
       SET comment = ?, updated_at = ?
       WHERE id = ? AND status = 'pending'
-    `).run(comment, now, id);
+    `, [comment, now, id]);
 
     if (info.changes === 0) {
       return null;
     }
 
-    return getSuggestion(id);
+    return await getSuggestion(id);
   } catch (err) {
     console.error('[suggestions] Failed to update suggestion comment:', err);
     return null;
@@ -259,12 +294,12 @@ export function updateSuggestionComment(id: number, comment: string | null): Sug
 /**
  * Delete a suggestion.
  */
-export function deleteSuggestion(id: number): boolean {
+export async function deleteSuggestion(id: number): Promise<boolean> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM suggestions
       WHERE id = ?
-    `).run(id);
+    `, [id]);
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -280,15 +315,15 @@ export function deleteSuggestion(id: number): boolean {
 /**
  * Accept a suggestion.
  */
-export function acceptSuggestion(id: number, userId: string): boolean {
+export async function acceptSuggestion(id: number, userId: string): Promise<boolean> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE suggestions
       SET status = 'accepted', resolved_by = ?, resolved_at = ?, updated_at = ?
       WHERE id = ? AND status = 'pending'
-    `).run(userId, now, now, id);
+    `, [userId, now, now, id]);
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -300,15 +335,15 @@ export function acceptSuggestion(id: number, userId: string): boolean {
 /**
  * Reject a suggestion.
  */
-export function rejectSuggestion(id: number, userId: string): boolean {
+export async function rejectSuggestion(id: number, userId: string): Promise<boolean> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE suggestions
       SET status = 'rejected', resolved_by = ?, resolved_at = ?, updated_at = ?
       WHERE id = ? AND status = 'pending'
-    `).run(userId, now, now, id);
+    `, [userId, now, now, id]);
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -321,15 +356,15 @@ export function rejectSuggestion(id: number, userId: string): boolean {
  * Accept all pending suggestions for a document.
  * Returns the count of accepted suggestions.
  */
-export function acceptAllPending(docId: string, userId: string): number {
+export async function acceptAllPending(docId: string, userId: string): Promise<number> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE suggestions
       SET status = 'accepted', resolved_by = ?, resolved_at = ?, updated_at = ?
       WHERE doc_id = ? AND status = 'pending'
-    `).run(userId, now, now, docId);
+    `, [userId, now, now, docId]);
 
     return info.changes ?? 0;
   } catch (err) {
@@ -342,15 +377,15 @@ export function acceptAllPending(docId: string, userId: string): number {
  * Reject all pending suggestions for a document.
  * Returns the count of rejected suggestions.
  */
-export function rejectAllPending(docId: string, userId: string): number {
+export async function rejectAllPending(docId: string, userId: string): Promise<number> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE suggestions
       SET status = 'rejected', resolved_by = ?, resolved_at = ?, updated_at = ?
       WHERE doc_id = ? AND status = 'pending'
-    `).run(userId, now, now, docId);
+    `, [userId, now, now, docId]);
 
     return info.changes ?? 0;
   } catch (err) {
@@ -366,15 +401,15 @@ export function rejectAllPending(docId: string, userId: string): number {
 /**
  * Get total suggestion count for a document.
  */
-export function getSuggestionCount(docId: string): number {
+export async function getSuggestionCount(docId: string): Promise<number> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count
       FROM suggestions
       WHERE doc_id = ?
-    `).get(docId) as { count: number };
+    `, [docId]);
 
-    return row.count;
+    return row?.count ?? 0;
   } catch (err) {
     console.error('[suggestions] Failed to get suggestion count:', err);
     return 0;
@@ -384,15 +419,15 @@ export function getSuggestionCount(docId: string): number {
 /**
  * Get pending suggestion count for a document.
  */
-export function getPendingCount(docId: string): number {
+export async function getPendingCount(docId: string): Promise<number> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count
       FROM suggestions
       WHERE doc_id = ? AND status = 'pending'
-    `).get(docId) as { count: number };
+    `, [docId]);
 
-    return row.count;
+    return row?.count ?? 0;
   } catch (err) {
     console.error('[suggestions] Failed to get pending count:', err);
     return 0;
@@ -407,12 +442,12 @@ export function getPendingCount(docId: string): number {
  * Delete all suggestions for a document.
  * Used when permanently deleting a document.
  */
-export function deleteAllDocSuggestions(docId: string): number {
+export async function deleteAllDocSuggestions(docId: string): Promise<number> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM suggestions
       WHERE doc_id = ?
-    `).run(docId);
+    `, [docId]);
 
     return info.changes ?? 0;
   } catch (err) {

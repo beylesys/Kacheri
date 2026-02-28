@@ -164,6 +164,8 @@ export default function ProofHealthBadge({
     <span
       style={getContainerStyle(size, cfg)}
       title={showTooltip ? tooltip : undefined}
+      aria-live="polite"
+      aria-label={`Proof status: ${cfg.label}`}
     >
       <span style={{ ...dotStyle, backgroundColor: cfg.dot }} />
       {size === "md" && <span style={labelStyle}>{cfg.label}</span>}

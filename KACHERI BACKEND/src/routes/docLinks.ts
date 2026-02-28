@@ -2,7 +2,7 @@
 // REST endpoints for cross-document links and backlinks.
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import {
   createDocLink,
   getDocLink,
@@ -22,7 +22,7 @@ import {
 } from '../workspace/middleware';
 import { wsBroadcast } from '../realtime/globalHub';
 
-export function createDocLinkRoutes(db: Database) {
+export function createDocLinkRoutes(db: DbAdapter) {
   return async function docLinkRoutes(app: FastifyInstance) {
     // Helper to get user ID from request
     function requireUser(req: FastifyRequest, reply: FastifyReply): string | null {
@@ -35,13 +35,13 @@ export function createDocLinkRoutes(db: Database) {
     }
 
     // Helper to check doc access
-    function checkDocAccess(
+    async function checkDocAccess(
       req: FastifyRequest,
       reply: FastifyReply,
       docId: string,
       requiredRole: 'viewer' | 'commenter' | 'editor' | 'owner'
-    ): boolean {
-      const role = getEffectiveDocRole(db, docId, req);
+    ): Promise<boolean> {
+      const role = await getEffectiveDocRole(db, docId, req);
       if (!role) {
         reply.code(403).send({ error: 'Access denied' });
         return false;
@@ -68,15 +68,15 @@ export function createDocLinkRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check viewer+ access
-        if (!checkDocAccess(req, reply, docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, docId,'viewer')) return;
 
-        const links = listLinksFromDoc(docId);
+        const links = await listLinksFromDoc(docId);
         return { links };
       }
     );
@@ -95,15 +95,15 @@ export function createDocLinkRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check viewer+ access
-        if (!checkDocAccess(req, reply, docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, docId,'viewer')) return;
 
-        const backlinks = listLinksToDoc(docId);
+        const backlinks = await listLinksToDoc(docId);
         return { backlinks };
       }
     );
@@ -129,13 +129,13 @@ export function createDocLinkRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check source doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access on source doc
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId,'editor')) return;
 
         const body = req.body ?? {};
         const toDocId = (body.toDocId ?? '').toString().trim();
@@ -145,7 +145,7 @@ export function createDocLinkRoutes(db: Database) {
         }
 
         // Check target doc exists
-        const targetDoc = getDoc(toDocId);
+        const targetDoc = await getDoc(toDocId);
         if (!targetDoc) {
           return reply.code(400).send({ error: 'Target document not found' });
         }
@@ -165,7 +165,7 @@ export function createDocLinkRoutes(db: Database) {
         };
 
         try {
-          const link = createDocLink(params);
+          const link = await createDocLink(params);
 
           if (!link) {
             return reply.code(400).send({ error: 'Failed to create link' });
@@ -221,16 +221,16 @@ export function createDocLinkRoutes(db: Database) {
         }
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId,'editor')) return;
 
         // Get the link to verify it belongs to this doc
-        const existing = getDocLink(linkId);
+        const existing = await getDocLink(linkId);
         if (!existing) {
           return reply.code(404).send({ error: 'Link not found' });
         }
@@ -240,7 +240,7 @@ export function createDocLinkRoutes(db: Database) {
         }
 
         try {
-          const deleted = deleteDocLink(linkId);
+          const deleted = await deleteDocLink(linkId);
 
           if (!deleted) {
             return reply.code(404).send({ error: 'Link not found' });
@@ -301,13 +301,13 @@ export function createDocLinkRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId,'editor')) return;
 
         const body = req.body ?? {};
         const inputLinks = body.links ?? [];
@@ -335,7 +335,7 @@ export function createDocLinkRoutes(db: Database) {
         }
 
         try {
-          const result = syncDocLinks(
+          const result = await syncDocLinks(
             docId,
             validLinks,
             userId,

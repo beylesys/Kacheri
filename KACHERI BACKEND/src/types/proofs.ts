@@ -6,6 +6,7 @@ export type ProofKind =
   | 'ai:constrainedRewrite'
   | 'ai:detectFields'
   | 'ai:translate'
+  | 'ai:extraction'
   | 'ai:action'
   | 'export:pdf'
   | 'export:docx'
@@ -14,7 +15,25 @@ export type ProofKind =
   | 'import'
   | 'import:apply'
   | 'tts:read_aloud'
-  | 'stt:dictate';
+  | 'stt:dictate'
+  | 'compliance:check'
+  | 'clause:insert'
+  | 'knowledge:search'
+  | 'knowledge:index'
+  | 'negotiation:analyze'
+  | 'negotiation:counterproposal'
+  | 'design:generate'
+  | 'design:edit'
+  | 'design:style'
+  | 'design:content'
+  | 'design:compose'
+  | 'design:export'
+  | 'design:image'
+  | 'memory:ingest'
+  | 'jaal:summarize'
+  | 'jaal:extract_links'
+  | 'jaal:compare'
+  | 'jaal:capture';
 
 export interface ProofActor {
   type: 'ai' | 'system' | 'user';

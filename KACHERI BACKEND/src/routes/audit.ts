@@ -44,7 +44,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     const action = req.query.action as AuditAction | undefined;
     const targetType = req.query.targetType as AuditTargetType | undefined;
 
-    const entries = getAuditLog(workspaceId, {
+    const entries = await getAuditLog(workspaceId, {
       limit: limit + 1, // Fetch one extra to check hasMore
       before,
       action,
@@ -88,8 +88,8 @@ export default async function auditRoutes(app: FastifyInstance) {
     }
 
     // Get all entries (up to 10000 for export)
-    const entries = getAuditLog(workspaceId, { limit: 10000 });
-    const totalCount = countAuditEntries(workspaceId);
+    const entries = await getAuditLog(workspaceId, { limit: 10000 });
+    const totalCount = await countAuditEntries(workspaceId);
 
     const format = req.query.format ?? "json";
 
@@ -133,10 +133,10 @@ export default async function auditRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: "Access denied to this workspace" });
     }
 
-    const totalCount = countAuditEntries(workspaceId);
+    const totalCount = await countAuditEntries(workspaceId);
 
     // Get recent entries to compute stats
-    const recentEntries = getAuditLog(workspaceId, { limit: 200 });
+    const recentEntries = await getAuditLog(workspaceId, { limit: 200 });
 
     // Count by action
     const byAction: Record<string, number> = {};

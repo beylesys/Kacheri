@@ -2,7 +2,7 @@
 // REST endpoints for document version history with snapshots and diff.
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import {
   createVersion,
   getVersion,
@@ -23,7 +23,7 @@ import {
 } from '../workspace/middleware';
 import { wsBroadcast } from '../realtime/globalHub';
 
-export function createVersionRoutes(db: Database) {
+export function createVersionRoutes(db: DbAdapter) {
   return async function versionRoutes(app: FastifyInstance) {
     // Helper to get user ID from request
     function requireUser(req: FastifyRequest, reply: FastifyReply): string | null {
@@ -36,13 +36,13 @@ export function createVersionRoutes(db: Database) {
     }
 
     // Helper to check doc access
-    function checkDocAccess(
+    async function checkDocAccess(
       req: FastifyRequest,
       reply: FastifyReply,
       docId: string,
       requiredRole: 'viewer' | 'commenter' | 'editor' | 'owner'
-    ): boolean {
-      const role = getEffectiveDocRole(db, docId, req);
+    ): Promise<boolean> {
+      const role = await getEffectiveDocRole(db, docId, req);
       if (!role) {
         reply.code(403).send({ error: 'Access denied' });
         return false;
@@ -72,20 +72,20 @@ export function createVersionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check viewer+ access
-        if (!checkDocAccess(req, reply, docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, docId, 'viewer')) return;
 
         const limit = Math.min(parseInt(req.query.limit ?? '100', 10), 200);
         const offset = parseInt(req.query.offset ?? '0', 10);
 
         try {
-          const versions = listVersions(docId, { limit, offset });
-          const total = getVersionCount(docId);
+          const versions = await listVersions(docId, { limit, offset });
+          const total = await getVersionCount(docId);
 
           return { versions, total };
         } catch (err: any) {
@@ -117,13 +117,13 @@ export function createVersionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId, 'editor')) return;
 
         const body = req.body ?? {};
         const snapshotHtml = body.snapshotHtml;
@@ -147,7 +147,7 @@ export function createVersionRoutes(db: Database) {
         };
 
         try {
-          const version = createVersion(params);
+          const version = await createVersion(params);
 
           if (!version) {
             return reply.code(500).send({ error: 'Failed to create version' });
@@ -206,16 +206,16 @@ export function createVersionRoutes(db: Database) {
         }
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check viewer+ access
-        if (!checkDocAccess(req, reply, docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, docId, 'viewer')) return;
 
         try {
-          const version = getVersion(versionId);
+          const version = await getVersion(versionId);
 
           if (!version) {
             return reply.code(404).send({ error: 'Version not found' });
@@ -256,16 +256,16 @@ export function createVersionRoutes(db: Database) {
         }
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId, 'editor')) return;
 
         // Verify version belongs to this doc
-        const existing = getVersionMeta(versionId);
+        const existing = await getVersionMeta(versionId);
         if (!existing || existing.docId !== docId) {
           return reply.code(404).send({ error: 'Version not found' });
         }
@@ -274,7 +274,7 @@ export function createVersionRoutes(db: Database) {
         const name = body.name === null ? null : (body.name?.trim() || null);
 
         try {
-          const updated = renameVersion(versionId, name);
+          const updated = await renameVersion(versionId, name);
 
           if (!updated) {
             return reply.code(404).send({ error: 'Version not found' });
@@ -333,22 +333,22 @@ export function createVersionRoutes(db: Database) {
         }
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId, 'editor')) return;
 
         // Verify version belongs to this doc
-        const existing = getVersionMeta(versionId);
+        const existing = await getVersionMeta(versionId);
         if (!existing || existing.docId !== docId) {
           return reply.code(404).send({ error: 'Version not found' });
         }
 
         try {
-          const deleted = deleteVersion(versionId);
+          const deleted = await deleteVersion(versionId);
 
           if (!deleted) {
             return reply.code(404).send({ error: 'Version not found' });
@@ -414,22 +414,22 @@ export function createVersionRoutes(db: Database) {
         }
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check viewer+ access
-        if (!checkDocAccess(req, reply, docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, docId, 'viewer')) return;
 
         // Get the version to get its version number
-        const version = getVersionMeta(versionId);
+        const version = await getVersionMeta(versionId);
         if (!version || version.docId !== docId) {
           return reply.code(404).send({ error: 'Version not found' });
         }
 
         try {
-          const diff = diffVersions(docId, compareWith, version.versionNumber);
+          const diff = await diffVersions(docId, compareWith, version.versionNumber);
 
           if (!diff) {
             return reply.code(404).send({ error: 'One or both versions not found' });
@@ -465,13 +465,13 @@ export function createVersionRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check editor+ access
-        if (!checkDocAccess(req, reply, docId, 'editor')) return;
+        if (!await checkDocAccess(req, reply, docId, 'editor')) return;
 
         const body = req.body ?? {};
         const versionId = body.versionId;
@@ -491,14 +491,14 @@ export function createVersionRoutes(db: Database) {
         }
 
         // Get the version to restore
-        const targetVersion = getVersion(versionId);
+        const targetVersion = await getVersion(versionId);
         if (!targetVersion || targetVersion.docId !== docId) {
           return reply.code(404).send({ error: 'Version not found' });
         }
 
         try {
           // Create a backup version of current state
-          const backupVersion = createVersion({
+          const backupVersion = await createVersion({
             docId,
             name: `Before restore to v${targetVersion.versionNumber}`,
             snapshotHtml: currentHtml,

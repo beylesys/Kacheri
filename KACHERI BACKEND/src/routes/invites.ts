@@ -28,7 +28,7 @@ const createInviteRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
     }
 
     // Check user has admin+ role
-    const userRole = workspaceStore.getUserRole(workspaceId, userId);
+    const userRole = await workspaceStore.getUserRole(workspaceId, userId);
     if (!userRole || (userRole !== 'owner' && userRole !== 'admin')) {
       return reply.status(403).send({ error: 'Requires admin permissions' });
     }
@@ -45,7 +45,7 @@ const createInviteRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
     }
 
     try {
-      const invite = inviteStore.createInvite({
+      const invite = await inviteStore.createInvite({
         workspaceId,
         invitedEmail: email,
         invitedBy: userId,
@@ -76,15 +76,15 @@ const createInviteRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
     }
 
     // Check user has admin+ role
-    const userRole = workspaceStore.getUserRole(workspaceId, userId);
+    const userRole = await workspaceStore.getUserRole(workspaceId, userId);
     if (!userRole || (userRole !== 'owner' && userRole !== 'admin')) {
       return reply.status(403).send({ error: 'Requires admin permissions' });
     }
 
     try {
       const invites = status === 'pending'
-        ? inviteStore.listPendingInvites(workspaceId)
-        : inviteStore.listInvites(workspaceId);
+        ? await inviteStore.listPendingInvites(workspaceId)
+        : await inviteStore.listInvites(workspaceId);
 
       return reply.send({ invites });
     } catch (err) {
@@ -108,7 +108,7 @@ const createInviteRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
     }
 
     // Check user has admin+ role
-    const userRole = workspaceStore.getUserRole(workspaceId, userId);
+    const userRole = await workspaceStore.getUserRole(workspaceId, userId);
     if (!userRole || (userRole !== 'owner' && userRole !== 'admin')) {
       return reply.status(403).send({ error: 'Requires admin permissions' });
     }
@@ -118,7 +118,7 @@ const createInviteRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
       return reply.status(400).send({ error: 'Invalid invite ID' });
     }
 
-    const success = inviteStore.revokeInvite(inviteIdNum, workspaceId);
+    const success = await inviteStore.revokeInvite(inviteIdNum, workspaceId);
     if (!success) {
       return reply.status(404).send({ error: 'Invite not found or already processed' });
     }
@@ -135,7 +135,7 @@ const createInviteRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
   }>('/invites/:token', async (request, reply) => {
     const { token } = request.params;
 
-    const invite = inviteStore.getInviteWithWorkspace(token);
+    const invite = await inviteStore.getInviteWithWorkspace(token);
     if (!invite) {
       return reply.status(404).send({ error: 'Invite not found' });
     }
@@ -186,14 +186,14 @@ const createInviteRoutes: FastifyPluginCallback = (fastify, _opts, done) => {
       // No email validation
     }
 
-    const result = inviteStore.acceptInvite(token, userId, userEmail);
+    const result = await inviteStore.acceptInvite(token, userId, userEmail);
 
     if (!result.success) {
       return reply.status(400).send({ error: result.error });
     }
 
     // Get workspace info to return
-    const workspace = workspaceStore.getById(result.workspaceId);
+    const workspace = await workspaceStore.getById(result.workspaceId);
 
     return reply.send({
       success: true,

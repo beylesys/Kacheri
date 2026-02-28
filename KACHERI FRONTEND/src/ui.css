@@ -466,6 +466,9 @@ body {
   background: transparent;
   padding: 24px 40px;
   overflow-y: auto;
+  /* Perf: isolate layout/style calculations and promote to GPU compositing layer */
+  contain: layout style;
+  will-change: transform;
 }
 
 /* The white editor canvas - the document page */
@@ -502,6 +505,10 @@ body {
       #e2e8f0 var(--page-height-px)
     );
   background-position: 0 calc(var(--page-margin-top) * -1);
+  /* Perf: isolate style recalculations within the editor content area.
+     Note: cannot use contain: layout here — ProseMirror needs to measure
+     content for cursor positioning and selection rendering. */
+  contain: style;
 }
 
 /* ==========================================================================
@@ -722,6 +729,12 @@ body {
   transform: translateX(0);
 }
 
+/* Skip rendering for off-screen drawers (non-ProseMirror chrome) */
+.drawer-left:not(.is-open),
+.drawer-right:not(.is-open) {
+  content-visibility: hidden;
+}
+
 /* Drawer toggle buttons */
 .drawer-toggle {
   position: fixed;
@@ -890,6 +903,73 @@ body {
   border-radius: 3px;
   font-size: 9px;
   color: rgba(255, 255, 255, 0.9);
+}
+
+/* ==========================================================================
+   CONNECTION STATUS BADGE — Offline/Online Indicator (Slice 4)
+   ========================================================================== */
+
+.connection-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: opacity 0.5s ease;
+  white-space: nowrap;
+}
+
+.connection-badge.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.connection-dot.green {
+  background: var(--green-500);
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+}
+
+.connection-dot.amber {
+  background: var(--yellow-500);
+  box-shadow: 0 0 4px rgba(245, 158, 11, 0.4);
+}
+
+.connection-dot.red {
+  background: var(--red-500);
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+
+@keyframes connection-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.connection-dot.pulse {
+  animation: connection-pulse 1.5s ease-in-out infinite;
+}
+
+.connection-label {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* Conflict banner — warning variant of editor-banner */
+.editor-banner-warning {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  color: #92400e;
 }
 
 /* Editor content wrapper (inside Editor.tsx) */
@@ -1144,6 +1224,48 @@ body {
   font-weight: 500;
 }
 
+/* Level 4: 1.1.1.1, 1.1.1.2, etc. */
+.tiptap .ProseMirror ol.legal-numbering ol ol ol {
+  list-style: none;
+  counter-reset: level4;
+  padding-left: 0;
+}
+.tiptap .ProseMirror ol.legal-numbering ol ol ol > li {
+  counter-increment: level4;
+  position: relative;
+  padding-left: 3.5em;
+}
+.tiptap .ProseMirror ol.legal-numbering ol ol ol > li::before {
+  content: counter(level1) "." counter(level2) "." counter(level3) "." counter(level4) " ";
+  position: absolute;
+  left: 0;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   ALTERNATIVE NUMBERING STYLES (alpha, roman)
+   ========================================================================== */
+
+/* Alpha-lower: a, b, c */
+.tiptap .ProseMirror ol.numbering-alpha-lower {
+  list-style-type: lower-alpha;
+}
+
+/* Alpha-upper: A, B, C */
+.tiptap .ProseMirror ol.numbering-alpha-upper {
+  list-style-type: upper-alpha;
+}
+
+/* Roman-lower: i, ii, iii */
+.tiptap .ProseMirror ol.numbering-roman-lower {
+  list-style-type: lower-roman;
+}
+
+/* Roman-upper: I, II, III */
+.tiptap .ProseMirror ol.numbering-roman-upper {
+  list-style-type: upper-roman;
+}
+
 /* Inline table-of-contents block inside the document */
 .tiptap .toc-block {
   border-radius: 8px;
@@ -1267,6 +1389,17 @@ body {
   line-height: 0;
 }
 
+/* Perf: Lightweight placeholder shown while images are outside the viewport */
+.tiptap .ProseMirror .image-placeholder {
+  background: #f3f4f6;
+  border: 1px dashed #d1d5db;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+
 .tiptap .ProseMirror .image-container img {
   display: block;
   max-width: 100%;
@@ -1315,8 +1448,9 @@ body {
   min-height: 1.4em;
 }
 
-.tiptap .ProseMirror figure.kacheri-image figcaption:focus {
-  outline: none;
+.tiptap .ProseMirror figure.kacheri-image figcaption:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
   background: rgba(76, 110, 245, 0.1);
   border-radius: 4px;
 }
@@ -1464,6 +1598,11 @@ body {
   letter-spacing: 0.05em;
 }
 
+/* Width ratio label override */
+.tiptap .ProseMirror .kacheri-columns[data-column-widths]::before {
+  content: attr(data-columns) " Columns (" attr(data-column-widths) ")";
+}
+
 /* Single column (default) */
 .tiptap .ProseMirror .kacheri-columns[data-columns="1"] {
   column-count: 1;
@@ -1473,7 +1612,58 @@ body {
 .tiptap .ProseMirror .kacheri-columns[data-columns="2"] {
   column-count: 2;
   column-gap: 2em;
+}
+
+/* Three columns */
+.tiptap .ProseMirror .kacheri-columns[data-columns="3"] {
+  column-count: 3;
+  column-gap: 2em;
+}
+
+/* Four columns */
+.tiptap .ProseMirror .kacheri-columns[data-columns="4"] {
+  column-count: 4;
+  column-gap: 1.5em;
+}
+
+/* Column gap variants */
+.tiptap .ProseMirror .kacheri-columns[data-column-gap="narrow"] {
+  column-gap: 1em;
+}
+.tiptap .ProseMirror .kacheri-columns[data-column-gap="medium"] {
+  column-gap: 2em;
+}
+.tiptap .ProseMirror .kacheri-columns[data-column-gap="wide"] {
+  column-gap: 3em;
+}
+
+/* Column rule variants */
+.tiptap .ProseMirror .kacheri-columns[data-column-rule="none"] {
+  column-rule: none;
+}
+.tiptap .ProseMirror .kacheri-columns[data-column-rule="thin"] {
   column-rule: 1px solid #e5e7eb;
+}
+.tiptap .ProseMirror .kacheri-columns[data-column-rule="medium"] {
+  column-rule: 2px solid #d1d5db;
+}
+
+/* Width ratios (grid mode) — overrides column-count when data-column-widths is set.
+   The actual grid-template-columns value is set via inline style in renderHTML. */
+.tiptap .ProseMirror .kacheri-columns[data-column-widths] {
+  column-count: unset;
+  column-gap: unset;
+  column-rule: unset;
+  gap: 2em;
+}
+.tiptap .ProseMirror .kacheri-columns[data-column-widths][data-column-gap="narrow"] {
+  gap: 1em;
+}
+.tiptap .ProseMirror .kacheri-columns[data-column-widths][data-column-gap="medium"] {
+  gap: 2em;
+}
+.tiptap .ProseMirror .kacheri-columns[data-column-widths][data-column-gap="wide"] {
+  gap: 3em;
 }
 
 /* Prevent orphans in columns */
@@ -1504,7 +1694,9 @@ body {
   .bk-modal,
   .command-palette,
   .editor-layout > .toolbar,
-  .realtime-status {
+  .realtime-status,
+  .connection-badge,
+  .editor-banner-warning {
     display: none !important;
   }
 
@@ -1602,10 +1794,17 @@ body {
   .tiptap .ProseMirror .kacheri-columns {
     border: none;
     padding: 0;
+    margin: 0;
   }
 
   .tiptap .ProseMirror .kacheri-columns::before {
     display: none !important;
+  }
+
+  /* Collapse to single column on narrow print to avoid overflow */
+  .tiptap .ProseMirror .kacheri-columns[data-columns="3"],
+  .tiptap .ProseMirror .kacheri-columns[data-columns="4"] {
+    column-count: 2;
   }
 
   /* Hide doc link icons in print */
@@ -1898,4 +2097,496 @@ body {
   outline: 2px solid var(--brand-500);
   outline-offset: 2px;
   border-radius: 2px;
+}
+
+/* ==================================================================
+   MOBILE-RESPONSIVE LAYOUT — Slice 5
+   Breakpoints: Tablet 768-1024px, Phone <768px
+   Desktop (>1024px): no changes — all rules scoped to media queries
+   ================================================================== */
+
+/* --- Toolbar groups (desktop: inline-flex, no special behavior) --- */
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.15);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Toolbar overflow toggle — hidden on desktop */
+.toolbar-overflow-toggle {
+  display: none !important;
+}
+
+/* Mobile hamburger — hidden on desktop */
+.mobile-hamburger {
+  display: none !important;
+}
+
+/* Mobile bottom tabs — hidden on desktop */
+.mobile-bottom-tabs {
+  display: none;
+}
+
+/* Drawer drag handle — hidden on desktop */
+.drawer-drag-handle {
+  display: none;
+}
+
+/* --- Mobile nav overlay --- */
+.mobile-nav-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 300;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.mobile-nav-menu {
+  width: min(300px, 80vw);
+  height: 100%;
+  background: var(--panel);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.mobile-nav-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mobile-nav-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.mobile-nav-item {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 44px;
+}
+
+.mobile-nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ==================================================================
+   TABLET BREAKPOINT: 768px – 1024px
+   ================================================================== */
+@media (min-width: 768px) and (max-width: 1024px) {
+  /* --- Topbar: compact --- */
+  .editor-topbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .topbar-hide-tablet {
+    display: none !important;
+  }
+
+  .topbar-doc-title {
+    max-width: 30vw !important;
+  }
+
+  /* --- Toolbar: overflow toggle visible, scroll, secondary hidden --- */
+  .toolbar-overflow-toggle {
+    display: flex !important;
+    flex-shrink: 0;
+  }
+
+  .toolbar-inner {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .toolbar-inner::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Touch-friendly targets */
+  .toolbar .button.sm {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Hide secondary groups by default */
+  .toolbar-group-secondary,
+  .toolbar-group-intel {
+    display: none;
+  }
+
+  /* Show when expanded */
+  .toolbar-inner.expanded .toolbar-group-secondary,
+  .toolbar-inner.expanded .toolbar-group-intel {
+    display: inline-flex;
+  }
+
+  /* --- Drawers: 50% max width --- */
+  .drawer-left,
+  .drawer-right {
+    width: min(300px, 50vw);
+  }
+
+  /* --- Hamburger visible --- */
+  .mobile-hamburger {
+    display: flex !important;
+  }
+
+  /* --- Editor center: tighter padding --- */
+  .editor-center {
+    padding: 16px 20px;
+  }
+
+  /* --- File Manager responsive --- */
+  .file-manager-page {
+    padding: 24px 16px !important;
+  }
+}
+
+/* ==================================================================
+   PHONE BREAKPOINT: < 768px
+   ================================================================== */
+@media (max-width: 767px) {
+  /* --- Topbar: compact + wrap --- */
+  .editor-topbar {
+    height: auto;
+    gap: 6px;
+    padding: 8px 10px;
+    flex-wrap: wrap;
+  }
+
+  .topbar-hide-tablet,
+  .topbar-hide-mobile {
+    display: none !important;
+  }
+
+  .topbar-hide-phone {
+    display: none !important;
+  }
+
+  .topbar-doc-title {
+    max-width: 40vw !important;
+    width: auto !important;
+  }
+
+  /* --- Hamburger visible --- */
+  .mobile-hamburger {
+    display: flex !important;
+  }
+
+  /* --- Toolbar: single-row scroll, overflow toggle visible --- */
+  .toolbar-overflow-toggle {
+    display: flex !important;
+    flex-shrink: 0;
+  }
+
+  .toolbar-inner {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 6px 10px !important;
+  }
+
+  .toolbar-inner::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Touch-friendly targets */
+  .toolbar .button.sm {
+    min-height: 44px;
+    min-width: 44px;
+    font-size: 13px !important;
+  }
+
+  /* Hide insert buttons on phone (behind overflow) */
+  .toolbar-insert-btn {
+    display: none;
+  }
+
+  /* Hide secondary + intel groups by default */
+  .toolbar-group-secondary,
+  .toolbar-group-intel {
+    display: none;
+  }
+
+  /* Show when expanded */
+  .toolbar-inner.expanded .toolbar-group-secondary,
+  .toolbar-inner.expanded .toolbar-group-intel {
+    display: inline-flex;
+  }
+
+  .toolbar-inner.expanded .toolbar-insert-btn {
+    display: inline-flex;
+  }
+
+  /* Toolbar dividers smaller on phone */
+  .toolbar-divider {
+    height: 16px;
+    margin: 0 2px;
+  }
+
+  /* --- Drawers: full-width bottom sheet --- */
+  .drawer-left,
+  .drawer-right {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 70vh;
+    max-height: 70vh;
+    border-radius: 16px 16px 0 0;
+    border-top-right-radius: 16px;
+    border-top-left-radius: 16px;
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+
+  .drawer-left {
+    transform: translateY(100%);
+  }
+
+  .drawer-left.is-open {
+    transform: translateY(0);
+  }
+
+  .drawer-right {
+    transform: translateY(100%);
+  }
+
+  .drawer-right.is-open {
+    transform: translateY(0);
+  }
+
+  /* Show drag handle on phone */
+  .drawer-drag-handle {
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: rgba(128, 128, 128, 0.4);
+    border-radius: 2px;
+    margin: 8px auto;
+    flex-shrink: 0;
+  }
+
+  /* Hide side drawer toggle buttons on phone */
+  .drawer-toggle-left,
+  .drawer-toggle-right {
+    display: none;
+  }
+
+  /* Drawer tabs: horizontal scroll for 12 tabs */
+  .drawer-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .drawer-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .drawer-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 10px 12px;
+    min-height: 44px;
+  }
+
+  /* --- Editor center: minimal padding --- */
+  .editor-center {
+    padding: 8px 4px;
+  }
+
+  .editor-shell {
+    padding: 4px 0;
+  }
+
+  .realtime-status {
+    font-size: 9px;
+    bottom: 6px;
+  }
+
+  /* --- Bottom tab bar visible --- */
+  .mobile-bottom-tabs {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    z-index: 200;
+    justify-content: space-around;
+    align-items: center;
+  }
+
+  .mobile-bottom-tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: var(--muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    min-height: 44px;
+    gap: 2px;
+  }
+
+  .mobile-bottom-tab-active {
+    color: var(--brand-500);
+  }
+
+  .mobile-bottom-tab-icon {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .mobile-bottom-tab-label {
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  /* Pad bottom of editor layout for fixed tab bar */
+  .editor-layout {
+    padding-bottom: 56px;
+  }
+
+  /* --- File Manager responsive --- */
+  .file-manager-page {
+    padding: 16px 10px !important;
+  }
+
+  /* --- Mobile nav overlay: full-screen on phone --- */
+  .mobile-nav-menu {
+    width: 100%;
+  }
+}
+
+/* --- Print: hide mobile-only elements --- */
+@media print {
+  .mobile-bottom-tabs,
+  .mobile-hamburger,
+  .toolbar-overflow-toggle,
+  .drawer-drag-handle,
+  .mobile-nav-overlay {
+    display: none !important;
+  }
+}
+
+/* ===================================================================
+   Accessibility Foundations
+   =================================================================== */
+
+/* --- Screen-reader-only utility (global) --- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Skip-to-content link --- */
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 100000;
+  padding: 8px 16px;
+  background: var(--brand-600);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+.skip-to-content:focus {
+  top: 0;
+}
+
+/* --- Focus-visible rings for interactive elements --- */
+.button:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+.drawer-tab:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: -2px;
+}
+.toolbar-overflow-toggle:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+.comments-close:focus-visible,
+.versions-close:focus-visible,
+.suggestions-close:focus-visible,
+.backlinks-close:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+/* ── Panel loading spinner (lazy-loaded drawer panels) ── */
+.panel-loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  gap: 12px;
+}
+.panel-loading-spinner-circle {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--brand-500, #8b5cf6);
+  border-radius: 50%;
+  animation: panel-spin 0.8s linear infinite;
+}
+.panel-loading-spinner-text {
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+}
+@keyframes panel-spin {
+  to { transform: rotate(360deg); }
 }

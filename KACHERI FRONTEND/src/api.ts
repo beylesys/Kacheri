@@ -128,11 +128,18 @@ export interface HeaderSettings {
   height: number;
 }
 
+export type PageNumberFormat = 'decimal' | 'lowerRoman' | 'upperRoman' | 'lowerAlpha' | 'upperAlpha';
+export type PageNumberPosition = 'header-left' | 'header-center' | 'header-right' | 'footer-left' | 'footer-center' | 'footer-right';
+
 export interface FooterSettings {
   enabled: boolean;
   content: string;
   height: number;
   showPageNumbers: boolean;
+  pageNumberFormat?: PageNumberFormat;
+  pageNumberStartAt?: number;
+  pageNumberPosition?: PageNumberPosition;
+  sectionResetPageNumbers?: boolean;
 }
 
 export interface LayoutSettings {

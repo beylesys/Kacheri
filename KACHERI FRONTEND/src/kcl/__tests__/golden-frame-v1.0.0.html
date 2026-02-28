@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KCL v1.0.0 Golden Frame — Visual Regression Baseline</title>
+  <!--
+    Golden frame reference for KCL v1.0.0
+    This file exercises all 16 KCL components with representative data.
+    Used for visual regression testing across KCL versions.
+    Automated screenshot comparison deferred to E6 (Phase 7).
+
+    To test locally after build:
+      1. Run: cd "KACHERI FRONTEND" && npm run build:kcl
+      2. Serve the backend: cd "KACHERI BACKEND" && npm run dev
+      3. Open: http://localhost:4000/kcl/1.0.0/kcl.js (should return JS bundle)
+      4. Or open this file directly with KCL loaded via local paths
+  -->
+  <link rel="stylesheet" href="/kcl/1.0.0/kcl.css">
+  <style>
+    body { margin: 0; padding: 0; background: #f5f5f5; }
+    .golden-frame-section {
+      margin: 16px;
+      padding: 16px;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+    }
+    .golden-frame-section h2 {
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      color: #666;
+      margin: 0 0 12px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- === SECTION 1: kcl-slide (frame container) === -->
+<div class="golden-frame-section">
+  <h2>kcl-slide</h2>
+  <kcl-slide background="#1a1a2e" transition="fade" aspect-ratio="16/9" padding="40">
+    <kcl-text level="h1" color="#ffffff" align="center">KCL v1.0.0 Golden Frame</kcl-text>
+    <kcl-text level="p" color="#cccccc" align="center">Visual regression baseline — all 16 components</kcl-text>
+  </kcl-slide>
+</div>
+
+<!-- === SECTION 2: kcl-text (typography) === -->
+<div class="golden-frame-section">
+  <h2>kcl-text</h2>
+  <kcl-text level="h1">Heading 1</kcl-text>
+  <kcl-text level="h2">Heading 2</kcl-text>
+  <kcl-text level="h3">Heading 3</kcl-text>
+  <kcl-text level="p">Paragraph text with default styling. This component renders semantic HTML tags based on the level attribute.</kcl-text>
+  <kcl-text level="p" align="center" color="#6366f1">Centered, colored paragraph</kcl-text>
+</div>
+
+<!-- === SECTION 3: kcl-layout (flexbox/grid) === -->
+<div class="golden-frame-section">
+  <h2>kcl-layout</h2>
+  <kcl-layout type="grid" columns="3" gap="16">
+    <div style="background:#e0e7ff;padding:16px;border-radius:4px;">Column 1</div>
+    <div style="background:#dbeafe;padding:16px;border-radius:4px;">Column 2</div>
+    <div style="background:#e0f2fe;padding:16px;border-radius:4px;">Column 3</div>
+  </kcl-layout>
+</div>
+
+<!-- === SECTION 4: kcl-image === -->
+<div class="golden-frame-section">
+  <h2>kcl-image</h2>
+  <kcl-image alt="Placeholder image — KCL golden frame test" fit="contain" aspect-ratio="16/9"></kcl-image>
+</div>
+
+<!-- === SECTION 5: kcl-list === -->
+<div class="golden-frame-section">
+  <h2>kcl-list</h2>
+  <kcl-list id="golden-list" type="bullet" animate="fade"></kcl-list>
+  <script data-for="golden-list" type="application/json">
+    [
+      { "text": "First list item with bullet marker" },
+      { "text": "Second list item" },
+      { "text": "Third item with nested content", "children": [
+        { "text": "Nested item A" },
+        { "text": "Nested item B" }
+      ]}
+    ]
+  </script>
+</div>
+
+<!-- === SECTION 6: kcl-quote === -->
+<div class="golden-frame-section">
+  <h2>kcl-quote</h2>
+  <kcl-quote attribution="Marie Curie" style="large">Nothing in life is to be feared, it is only to be understood.</kcl-quote>
+</div>
+
+<!-- === SECTION 7: kcl-metric === -->
+<div class="golden-frame-section">
+  <h2>kcl-metric</h2>
+  <kcl-layout type="grid" columns="3" gap="16">
+    <kcl-metric id="metric-revenue" label="Revenue" prefix="$" trend="up" format="compact"></kcl-metric>
+    <kcl-metric id="metric-users" label="Active Users" trend="up"></kcl-metric>
+    <kcl-metric id="metric-churn" label="Churn Rate" suffix="%" trend="down"></kcl-metric>
+  </kcl-layout>
+  <script data-for="metric-revenue" type="application/json">{ "value": 2400000, "delta": 12.5 }</script>
+  <script data-for="metric-users" type="application/json">{ "value": 84230, "delta": 8.3 }</script>
+  <script data-for="metric-churn" type="application/json">{ "value": 3.2, "delta": -1.1 }</script>
+</div>
+
+<!-- === SECTION 8: kcl-icon === -->
+<div class="golden-frame-section">
+  <h2>kcl-icon</h2>
+  <kcl-layout type="flex" gap="16">
+    <kcl-icon name="check" size="24" color="#22c55e" label="Check"></kcl-icon>
+    <kcl-icon name="x" size="24" color="#ef4444" label="Close"></kcl-icon>
+    <kcl-icon name="star" size="24" color="#eab308" label="Star"></kcl-icon>
+    <kcl-icon name="heart" size="24" color="#ec4899" label="Heart"></kcl-icon>
+    <kcl-icon name="alert-triangle" size="24" color="#f97316" label="Warning"></kcl-icon>
+    <kcl-icon name="search" size="24" color="#6366f1" label="Search"></kcl-icon>
+  </kcl-layout>
+</div>
+
+<!-- === SECTION 9: kcl-animate === -->
+<div class="golden-frame-section">
+  <h2>kcl-animate</h2>
+  <kcl-animate type="fade" trigger="enter" duration="500">
+    <kcl-text level="p">This text fades in on scroll entry.</kcl-text>
+  </kcl-animate>
+</div>
+
+<!-- === SECTION 10: kcl-code === -->
+<div class="golden-frame-section">
+  <h2>kcl-code</h2>
+  <kcl-code id="golden-code" language="javascript" line-numbers="true" highlight-lines="2,4"></kcl-code>
+  <script data-for="golden-code" type="application/json">
+    "function greet(name) {\n  const message = `Hello, ${name}!`;\n  console.log(message);\n  return message;\n}"
+  </script>
+</div>
+
+<!-- === SECTION 11: kcl-embed (blocked state — no actual iframe in test) === -->
+<div class="golden-frame-section">
+  <h2>kcl-embed</h2>
+  <kcl-embed src="https://www.youtube.com/embed/dQw4w9WgXcQ" aspect-ratio="16/9" title="Sample YouTube Embed"></kcl-embed>
+  <br>
+  <kcl-embed src="https://example.com/blocked" title="Blocked embed test"></kcl-embed>
+</div>
+
+<!-- === SECTION 12: kcl-source === -->
+<div class="golden-frame-section">
+  <h2>kcl-source</h2>
+  <kcl-source doc-id="doc-abc123" section="2.1" label="Project Requirements Document"></kcl-source>
+</div>
+
+<!-- === SECTION 13: kcl-chart (all chart types) === -->
+<div class="golden-frame-section">
+  <h2>kcl-chart</h2>
+  <kcl-layout type="grid" columns="2" gap="16">
+    <kcl-chart id="chart-bar" type="bar" animate="true"></kcl-chart>
+    <kcl-chart id="chart-line" type="line" animate="true"></kcl-chart>
+    <kcl-chart id="chart-pie" type="pie" animate="true"></kcl-chart>
+    <kcl-chart id="chart-donut" type="donut" animate="true"></kcl-chart>
+  </kcl-layout>
+  <script data-for="chart-bar" type="application/json">
+    { "labels": ["Q1", "Q2", "Q3", "Q4"], "datasets": [{ "label": "Revenue", "values": [120, 190, 300, 250] }] }
+  </script>
+  <script data-for="chart-line" type="application/json">
+    { "labels": ["Jan", "Feb", "Mar", "Apr", "May"], "datasets": [{ "label": "Users", "values": [100, 150, 130, 200, 240] }] }
+  </script>
+  <script data-for="chart-pie" type="application/json">
+    { "labels": ["Desktop", "Mobile", "Tablet"], "datasets": [{ "label": "Traffic", "values": [55, 35, 10] }] }
+  </script>
+  <script data-for="chart-donut" type="application/json">
+    { "labels": ["Docs", "Studio", "Research"], "datasets": [{ "label": "Usage", "values": [60, 25, 15] }] }
+  </script>
+</div>
+
+<!-- === SECTION 14: kcl-table === -->
+<div class="golden-frame-section">
+  <h2>kcl-table</h2>
+  <kcl-table id="golden-table" sortable="true" striped="true"></kcl-table>
+  <script data-for="golden-table" type="application/json">
+    {
+      "columns": [
+        { "key": "name", "label": "Name" },
+        { "key": "role", "label": "Role" },
+        { "key": "status", "label": "Status" },
+        { "key": "score", "label": "Score", "align": "right" }
+      ],
+      "rows": [
+        { "name": "Alice", "role": "Engineer", "status": "Active", "score": 95 },
+        { "name": "Bob", "role": "Designer", "status": "Active", "score": 88 },
+        { "name": "Carol", "role": "PM", "status": "Away", "score": 92 },
+        { "name": "Dave", "role": "Engineer", "status": "Active", "score": 78 }
+      ]
+    }
+  </script>
+</div>
+
+<!-- === SECTION 15: kcl-timeline === -->
+<div class="golden-frame-section">
+  <h2>kcl-timeline</h2>
+  <kcl-timeline id="golden-timeline" direction="vertical" animate="true"></kcl-timeline>
+  <script data-for="golden-timeline" type="application/json">
+    {
+      "events": [
+        { "date": "2026-01", "title": "Phase 0 Complete", "description": "Product modularization and memory graph foundation" },
+        { "date": "2026-01", "title": "Phase 1 Complete", "description": "Backend foundation — database, stores, API routes" },
+        { "date": "2026-02", "title": "Phase 2 Complete", "description": "KCL component library — 16 custom elements" },
+        { "date": "2026-Q2", "title": "Phase 3 Planned", "description": "AI engine, intelligence, and JAAL connector" }
+      ]
+    }
+  </script>
+</div>
+
+<!-- === SECTION 16: kcl-compare === -->
+<div class="golden-frame-section">
+  <h2>kcl-compare</h2>
+  <kcl-compare id="golden-compare" mode="slider" initial-position="50"></kcl-compare>
+  <script data-for="golden-compare" type="application/json">
+    {
+      "before": { "src": "", "label": "Before" },
+      "after": { "src": "", "label": "After" }
+    }
+  </script>
+</div>
+
+<script src="/kcl/1.0.0/kcl.js"></script>
+</body>
+</html>

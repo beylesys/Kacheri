@@ -1,0 +1,87 @@
+version: '3.9'
+
+services:
+  backend:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://kacheri:kacheri@db:5432/kacheri
+      REDIS_URL: redis://cache:6379
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_ROOT: /app/storage
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      AI_PROVIDER: ${AI_PROVIDER:-dev}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - storage_data:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kacheri
+      POSTGRES_USER: kacheri
+      POSTGRES_PASSWORD: kacheri
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kacheri -d kacheri"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  cache:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # S17: Yjs standalone WebSocket server for real-time collaboration
+  yjs:
+    build: .
+    command: ["node", "dist/realtime/yjsStandalone.js"]
+    environment:
+      NODE_ENV: production
+      YJS_HOST: "0.0.0.0"
+      YJS_PORT: "1234"
+      YJS_PERSISTENCE_DIR: /app/data/yjs-leveldb
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      DEV_BYPASS_AUTH: "false"
+    volumes:
+      - yjs_data:/app/data/yjs-leveldb
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  # S17: Frontend served via nginx with SPA routing and backend proxies
+  frontend:
+    build: "../KACHERI FRONTEND"
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - yjs
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  redis_data:
+  storage_data:
+  yjs_data:

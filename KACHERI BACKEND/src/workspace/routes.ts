@@ -5,13 +5,13 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import { createWorkspaceStore } from './store';
 import { hasPermission, type WorkspaceRole, type CreateWorkspaceInput, type UpdateWorkspaceInput } from './types';
 import { getCurrentUserId, getAuthConfig } from '../auth';
 import { logAuditEvent } from '../store/audit';
 
-export function createWorkspaceRoutes(db: Database) {
+export function createWorkspaceRoutes(db: DbAdapter) {
   const store = createWorkspaceStore(db);
 
   return async function workspaceRoutes(app: FastifyInstance) {
@@ -41,13 +41,13 @@ export function createWorkspaceRoutes(db: Database) {
     }
 
     // Check workspace access
-    function checkAccess(
+    async function checkAccess(
       workspaceId: string,
       userId: string,
       requiredRole: WorkspaceRole,
       reply: FastifyReply
-    ): boolean {
-      const role = store.getUserRole(workspaceId, userId);
+    ): Promise<boolean> {
+      const role = await store.getUserRole(workspaceId, userId);
       if (!role) {
         reply.code(403).send({ error: 'Not a member of this workspace' });
         return false;
@@ -66,7 +66,7 @@ export function createWorkspaceRoutes(db: Database) {
       const userId = requireUser(req, reply);
       if (!userId) return;
 
-      const workspaces = store.listForUser(userId);
+      const workspaces = await store.listForUser(userId);
       return { workspaces };
     });
 
@@ -75,12 +75,12 @@ export function createWorkspaceRoutes(db: Database) {
       const userId = requireUser(req, reply);
       if (!userId) return;
 
-      const workspace = store.getById(req.params.id);
+      const workspace = await store.getById(req.params.id);
       if (!workspace) {
         return reply.code(404).send({ error: 'Workspace not found' });
       }
 
-      const role = store.getUserRole(workspace.id, userId);
+      const role = await store.getUserRole(workspace.id, userId);
       if (!role) {
         return reply.code(403).send({ error: 'Not a member of this workspace' });
       }
@@ -99,7 +99,7 @@ export function createWorkspaceRoutes(db: Database) {
         return reply.code(400).send({ error: 'name is required' });
       }
 
-      const workspace = store.create(
+      const workspace = await store.create(
         { name, description: body.description },
         userId
       );
@@ -115,10 +115,10 @@ export function createWorkspaceRoutes(db: Database) {
         if (!userId) return;
 
         const workspaceId = req.params.id;
-        if (!checkAccess(workspaceId, userId, 'admin', reply)) return;
+        if (!await checkAccess(workspaceId, userId, 'admin', reply)) return;
 
         const body = req.body ?? {};
-        const updated = store.update(workspaceId, {
+        const updated = await store.update(workspaceId, {
           name: body.name,
           description: body.description,
         });
@@ -127,7 +127,7 @@ export function createWorkspaceRoutes(db: Database) {
           return reply.code(404).send({ error: 'Workspace not found' });
         }
 
-        const role = store.getUserRole(workspaceId, userId);
+        const role = await store.getUserRole(workspaceId, userId);
         return { ...updated, role };
       }
     );
@@ -138,9 +138,9 @@ export function createWorkspaceRoutes(db: Database) {
       if (!userId) return;
 
       const workspaceId = req.params.id;
-      if (!checkAccess(workspaceId, userId, 'owner', reply)) return;
+      if (!await checkAccess(workspaceId, userId, 'owner', reply)) return;
 
-      const deleted = store.delete(workspaceId);
+      const deleted = await store.delete(workspaceId);
       if (!deleted) {
         return reply.code(404).send({ error: 'Workspace not found' });
       }
@@ -156,9 +156,9 @@ export function createWorkspaceRoutes(db: Database) {
       if (!userId) return;
 
       const workspaceId = req.params.id;
-      if (!checkAccess(workspaceId, userId, 'viewer', reply)) return;
+      if (!await checkAccess(workspaceId, userId, 'viewer', reply)) return;
 
-      const members = store.listMembers(workspaceId);
+      const members = await store.listMembers(workspaceId);
       return { members };
     });
 
@@ -170,7 +170,7 @@ export function createWorkspaceRoutes(db: Database) {
         if (!actorId) return;
 
         const workspaceId = req.params.id;
-        if (!checkAccess(workspaceId, actorId, 'admin', reply)) return;
+        if (!await checkAccess(workspaceId, actorId, 'admin', reply)) return;
 
         const body = req.body ?? {};
         const targetUserId = (body.userId ?? '').toString().trim();
@@ -184,12 +184,12 @@ export function createWorkspaceRoutes(db: Database) {
         }
 
         // Only owner can add admins
-        const actorRole = store.getUserRole(workspaceId, actorId);
+        const actorRole = await store.getUserRole(workspaceId, actorId);
         if (role === 'admin' && actorRole !== 'owner') {
           return reply.code(403).send({ error: 'Only owner can add admins' });
         }
 
-        const member = store.addMember(workspaceId, targetUserId, role);
+        const member = await store.addMember(workspaceId, targetUserId, role);
 
         // Log audit event
         logAuditEvent({
@@ -215,7 +215,7 @@ export function createWorkspaceRoutes(db: Database) {
         const workspaceId = req.params.id;
         const targetUserId = req.params.userId;
 
-        if (!checkAccess(workspaceId, actorId, 'admin', reply)) return;
+        if (!await checkAccess(workspaceId, actorId, 'admin', reply)) return;
 
         const body = req.body ?? {};
         const role = body.role;
@@ -225,7 +225,7 @@ export function createWorkspaceRoutes(db: Database) {
         }
 
         // Can't change owner role
-        const targetMember = store.getMember(workspaceId, targetUserId);
+        const targetMember = await store.getMember(workspaceId, targetUserId);
         if (!targetMember) {
           return reply.code(404).send({ error: 'Member not found' });
         }
@@ -234,13 +234,13 @@ export function createWorkspaceRoutes(db: Database) {
         }
 
         // Only owner can set admin role
-        const actorRole = store.getUserRole(workspaceId, actorId);
+        const actorRole = await store.getUserRole(workspaceId, actorId);
         if (role === 'admin' && actorRole !== 'owner') {
           return reply.code(403).send({ error: 'Only owner can set admin role' });
         }
 
         const previousRole = targetMember.role;
-        const updated = store.updateMemberRole(workspaceId, targetUserId, role);
+        const updated = await store.updateMemberRole(workspaceId, targetUserId, role);
 
         // Log audit event
         logAuditEvent({
@@ -268,11 +268,11 @@ export function createWorkspaceRoutes(db: Database) {
 
         // Self-removal is allowed (leave workspace)
         if (actorId !== targetUserId) {
-          if (!checkAccess(workspaceId, actorId, 'admin', reply)) return;
+          if (!await checkAccess(workspaceId, actorId, 'admin', reply)) return;
         }
 
         // Can't remove owner
-        const targetMember = store.getMember(workspaceId, targetUserId);
+        const targetMember = await store.getMember(workspaceId, targetUserId);
         if (!targetMember) {
           return reply.code(404).send({ error: 'Member not found' });
         }
@@ -281,7 +281,7 @@ export function createWorkspaceRoutes(db: Database) {
         }
 
         const previousRole = targetMember.role;
-        store.removeMember(workspaceId, targetUserId);
+        await store.removeMember(workspaceId, targetUserId);
 
         // Log audit event
         logAuditEvent({
@@ -304,8 +304,8 @@ export function createWorkspaceRoutes(db: Database) {
       const userId = requireUser(req, reply);
       if (!userId) return;
 
-      const workspace = store.getOrCreateDefault(userId);
-      const role = store.getUserRole(workspace.id, userId);
+      const workspace = await store.getOrCreateDefault(userId);
+      const role = await store.getUserRole(workspace.id, userId);
       return { ...workspace, role };
     });
   };

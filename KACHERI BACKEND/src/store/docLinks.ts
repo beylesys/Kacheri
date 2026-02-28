@@ -119,7 +119,7 @@ function rowToDocLinkMeta(row: DocLinkWithTitleRow): DocLinkMeta {
 /**
  * Create a new doc link.
  */
-export function createDocLink(params: CreateDocLinkParams): DocLinkMeta | null {
+export async function createDocLink(params: CreateDocLinkParams): Promise<DocLinkMeta | null> {
   const {
     fromDocId,
     toDocId,
@@ -132,16 +132,14 @@ export function createDocLink(params: CreateDocLinkParams): DocLinkMeta | null {
   const now = Date.now();
 
   try {
-    const result = db.prepare(`
+    const result = await db.run(`
       INSERT INTO doc_links (
         from_doc_id, to_doc_id, workspace_id, link_text, position,
         created_by, created_at, updated_at, deleted_at
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-    `).run(
-      fromDocId, toDocId, workspaceId, linkText, position,
-      createdBy, now, now
-    );
+      RETURNING id
+    `, [fromDocId, toDocId, workspaceId, linkText, position, createdBy, now, now]);
 
     const linkId = result.lastInsertRowid as number;
     return getDocLink(linkId);
@@ -154,9 +152,9 @@ export function createDocLink(params: CreateDocLinkParams): DocLinkMeta | null {
 /**
  * Get a single doc link by ID.
  */
-export function getDocLink(id: number): DocLinkMeta | null {
+export async function getDocLink(id: number): Promise<DocLinkMeta | null> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<DocLinkWithTitleRow>(`
       SELECT dl.id, dl.from_doc_id, dl.to_doc_id, dl.workspace_id,
              dl.link_text, dl.position, dl.created_by,
              dl.created_at, dl.updated_at, dl.deleted_at,
@@ -164,7 +162,7 @@ export function getDocLink(id: number): DocLinkMeta | null {
       FROM doc_links dl
       LEFT JOIN docs d ON dl.to_doc_id = d.id
       WHERE dl.id = ? AND dl.deleted_at IS NULL
-    `).get(id) as DocLinkWithTitleRow | undefined;
+    `, [id]);
 
     return row ? rowToDocLinkMeta(row) : null;
   } catch (err) {
@@ -176,9 +174,9 @@ export function getDocLink(id: number): DocLinkMeta | null {
 /**
  * List all outgoing links from a document.
  */
-export function listLinksFromDoc(fromDocId: string): DocLinkMeta[] {
+export async function listLinksFromDoc(fromDocId: string): Promise<DocLinkMeta[]> {
   try {
-    const rows = db.prepare(`
+    const rows = await db.queryAll<DocLinkWithTitleRow>(`
       SELECT dl.id, dl.from_doc_id, dl.to_doc_id, dl.workspace_id,
              dl.link_text, dl.position, dl.created_by,
              dl.created_at, dl.updated_at, dl.deleted_at,
@@ -187,7 +185,7 @@ export function listLinksFromDoc(fromDocId: string): DocLinkMeta[] {
       LEFT JOIN docs d ON dl.to_doc_id = d.id
       WHERE dl.from_doc_id = ? AND dl.deleted_at IS NULL
       ORDER BY dl.position ASC, dl.created_at ASC
-    `).all(fromDocId) as DocLinkWithTitleRow[];
+    `, [fromDocId]);
 
     return rows.map(rowToDocLinkMeta);
   } catch (err) {
@@ -199,9 +197,9 @@ export function listLinksFromDoc(fromDocId: string): DocLinkMeta[] {
 /**
  * List all backlinks (documents that link to this document).
  */
-export function listLinksToDoc(toDocId: string): DocLinkMeta[] {
+export async function listLinksToDoc(toDocId: string): Promise<DocLinkMeta[]> {
   try {
-    const rows = db.prepare(`
+    const rows = await db.queryAll<DocLinkWithTitleRow>(`
       SELECT dl.id, dl.from_doc_id, dl.to_doc_id, dl.workspace_id,
              dl.link_text, dl.position, dl.created_by,
              dl.created_at, dl.updated_at, dl.deleted_at,
@@ -211,7 +209,7 @@ export function listLinksToDoc(toDocId: string): DocLinkMeta[] {
       WHERE dl.to_doc_id = ? AND dl.deleted_at IS NULL
         AND d.deleted_at IS NULL
       ORDER BY dl.created_at DESC
-    `).all(toDocId) as DocLinkWithTitleRow[];
+    `, [toDocId]);
 
     return rows.map(rowToDocLinkMeta);
   } catch (err) {
@@ -223,15 +221,15 @@ export function listLinksToDoc(toDocId: string): DocLinkMeta[] {
 /**
  * Soft delete a doc link.
  */
-export function deleteDocLink(id: number): boolean {
+export async function deleteDocLink(id: number): Promise<boolean> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE doc_links
       SET deleted_at = ?, updated_at = ?
       WHERE id = ? AND deleted_at IS NULL
-    `).run(now, now, id);
+    `, [now, now, id]);
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -243,12 +241,12 @@ export function deleteDocLink(id: number): boolean {
 /**
  * Permanently delete a doc link.
  */
-export function permanentlyDeleteDocLink(id: number): boolean {
+export async function permanentlyDeleteDocLink(id: number): Promise<boolean> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM doc_links
       WHERE id = ?
-    `).run(id);
+    `, [id]);
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -261,12 +259,12 @@ export function permanentlyDeleteDocLink(id: number): boolean {
  * Delete all links from a document (permanent).
  * Used when a document is permanently deleted.
  */
-export function deleteAllLinksFromDoc(fromDocId: string): number {
+export async function deleteAllLinksFromDoc(fromDocId: string): Promise<number> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM doc_links
       WHERE from_doc_id = ?
-    `).run(fromDocId);
+    `, [fromDocId]);
 
     return info.changes ?? 0;
   } catch (err) {
@@ -279,12 +277,12 @@ export function deleteAllLinksFromDoc(fromDocId: string): number {
  * Delete all links to a document (permanent).
  * Used when a document is permanently deleted.
  */
-export function deleteAllLinksToDoc(toDocId: string): number {
+export async function deleteAllLinksToDoc(toDocId: string): Promise<number> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM doc_links
       WHERE to_doc_id = ?
-    `).run(toDocId);
+    `, [toDocId]);
 
     return info.changes ?? 0;
   } catch (err) {
@@ -298,21 +296,21 @@ export function deleteAllLinksToDoc(toDocId: string): number {
  * Removes links that are no longer in the document and adds new ones.
  * Returns counts of added/removed links.
  */
-export function syncDocLinks(
+export async function syncDocLinks(
   fromDocId: string,
   links: SyncLinkInput[],
   userId: string,
   workspaceId?: string | null
-): { added: number; removed: number; total: number } {
+): Promise<{ added: number; removed: number; total: number }> {
   const now = Date.now();
 
   try {
     // Get existing links
-    const existingRows = db.prepare(`
+    const existingRows = await db.queryAll<{ id: number; to_doc_id: string; position: number | null }>(`
       SELECT id, to_doc_id, position
       FROM doc_links
       WHERE from_doc_id = ? AND deleted_at IS NULL
-    `).all(fromDocId) as Array<{ id: number; to_doc_id: string; position: number | null }>;
+    `, [fromDocId]);
 
     // Create map of existing links keyed by (toDocId, position)
     const existingMap = new Map<string, number>();
@@ -325,7 +323,7 @@ export function syncDocLinks(
     const newLinkKeys = new Set<string>();
     for (const link of links) {
       const key = `${link.toDocId}:${link.position ?? 'null'}`;
-      newLinkKeys.set(key);
+      newLinkKeys.add(key);
     }
 
     // Find links to remove (in existing but not in new)
@@ -345,37 +343,38 @@ export function syncDocLinks(
       }
     }
 
-    // Soft delete removed links
-    if (toRemove.length > 0) {
-      const placeholders = toRemove.map(() => '?').join(',');
-      db.prepare(`
-        UPDATE doc_links
-        SET deleted_at = ?, updated_at = ?
-        WHERE id IN (${placeholders})
-      `).run(now, now, ...toRemove);
-    }
+    // Execute removals and insertions inside a transaction
+    await db.transaction(async (tx) => {
+      // Soft delete removed links
+      if (toRemove.length > 0) {
+        const placeholders = toRemove.map(() => '?').join(',');
+        await tx.run(`
+          UPDATE doc_links
+          SET deleted_at = ?, updated_at = ?
+          WHERE id IN (${placeholders})
+        `, [now, now, ...toRemove]);
+      }
 
-    // Insert new links
-    const insertStmt = db.prepare(`
-      INSERT INTO doc_links (
-        from_doc_id, to_doc_id, workspace_id, link_text, position,
-        created_by, created_at, updated_at, deleted_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-    `);
-
-    for (const link of toAdd) {
-      insertStmt.run(
-        fromDocId,
-        link.toDocId,
-        workspaceId ?? null,
-        link.linkText ?? null,
-        link.position ?? null,
-        userId,
-        now,
-        now
-      );
-    }
+      // Insert new links
+      for (const link of toAdd) {
+        await tx.run(`
+          INSERT INTO doc_links (
+            from_doc_id, to_doc_id, workspace_id, link_text, position,
+            created_by, created_at, updated_at, deleted_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        `, [
+          fromDocId,
+          link.toDocId,
+          workspaceId ?? null,
+          link.linkText ?? null,
+          link.position ?? null,
+          userId,
+          now,
+          now,
+        ]);
+      }
+    });
 
     return {
       added: toAdd.length,
@@ -391,15 +390,15 @@ export function syncDocLinks(
 /**
  * Get link count for a document (outgoing).
  */
-export function getLinkCountFromDoc(fromDocId: string): number {
+export async function getLinkCountFromDoc(fromDocId: string): Promise<number> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count
       FROM doc_links
       WHERE from_doc_id = ? AND deleted_at IS NULL
-    `).get(fromDocId) as { count: number };
+    `, [fromDocId]);
 
-    return row.count;
+    return row?.count ?? 0;
   } catch (err) {
     console.error('[docLinks] Failed to get link count:', err);
     return 0;
@@ -409,17 +408,17 @@ export function getLinkCountFromDoc(fromDocId: string): number {
 /**
  * Get backlink count for a document.
  */
-export function getBacklinkCount(toDocId: string): number {
+export async function getBacklinkCount(toDocId: string): Promise<number> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count
       FROM doc_links dl
       LEFT JOIN docs d ON dl.from_doc_id = d.id
       WHERE dl.to_doc_id = ? AND dl.deleted_at IS NULL
         AND d.deleted_at IS NULL
-    `).get(toDocId) as { count: number };
+    `, [toDocId]);
 
-    return row.count;
+    return row?.count ?? 0;
   } catch (err) {
     console.error('[docLinks] Failed to get backlink count:', err);
     return 0;

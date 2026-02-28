@@ -1,8 +1,9 @@
 // KACHERI FRONTEND/src/components/ProofOnboardingModal.tsx
 // Phase 5 - P3.1: Multi-step onboarding wizard for the proof system
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import "./proofOnboardingModal.css";
 
 /* ---------- localStorage Keys ---------- */
@@ -100,6 +101,8 @@ export default function ProofOnboardingModal({
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, isOpen);
 
   const isFirstStep = step === 0;
   const isLastStep = step === STEPS.length - 1;
@@ -174,7 +177,7 @@ export default function ProofOnboardingModal({
   if (!isOpen) return null;
 
   return (
-    <div className="onboarding-backdrop" onClick={handleClose}>
+    <div className="onboarding-backdrop" onClick={handleClose} role="dialog" aria-modal="true" aria-labelledby="onboarding-title" ref={dialogRef}>
       <div className="onboarding-modal" onClick={(e) => e.stopPropagation()}>
         {/* Close button */}
         <button
@@ -189,7 +192,7 @@ export default function ProofOnboardingModal({
         {/* Content */}
         <div className="onboarding-content">
           <div className="onboarding-icon">{currentStep.icon}</div>
-          <h2 className="onboarding-title">{currentStep.title}</h2>
+          <h2 className="onboarding-title" id="onboarding-title">{currentStep.title}</h2>
           <p className="onboarding-description">{currentStep.description}</p>
 
           {currentStep.details && (

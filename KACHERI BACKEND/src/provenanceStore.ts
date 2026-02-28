@@ -3,6 +3,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { db } from "./db";
+import { getStorage } from "./storage";
 // NEW: workspace broadcast
 import { wsBroadcast } from "./realtime/globalHub";
 
@@ -72,10 +73,10 @@ function appendNdjson(entry: ProvenanceEntry) {
 /* Internal helpers                                                           */
 /* -------------------------------------------------------------------------- */
 
-function getTableColumns(table: string): Set<string> {
+async function getTableColumns(table: string): Promise<Set<string>> {
   try {
-    const rows = db.prepare(`PRAGMA table_info('${table}')`).all() as any[];
-    return new Set(rows.map((r) => r.name as string));
+    const rows = await db.queryAll<{ name: string }>(`PRAGMA table_info('${table}')`);
+    return new Set(rows.map((r) => r.name));
   } catch {
     return new Set<string>();
   }
@@ -130,10 +131,10 @@ export function recordProvenance(
  * - If meta.proofFile is present, payload is loaded from that JSON; otherwise a minimal packet is synthesized.
  * - If meta.workspaceId is present, emits a workspace `proof_added` broadcast.
  */
-export function recordProof(
+export async function recordProof(
   p: Omit<ProofRow, "id" | "ts"> & { ts?: number }
-): ProofRow {
-  const cols = getTableColumns("proofs");
+): Promise<ProofRow> {
+  const cols = await getTableColumns("proofs");
 
   const ts = p.ts ?? Date.now();
   const legacyType = p.kind === "pdf" ? "export:pdf" : p.kind; // map kind→type
@@ -179,11 +180,11 @@ export function recordProof(
 
   // Build INSERT statement dynamically to match whatever columns exist.
   const insertCols: string[] = [];
-  const params: Record<string, any> = {};
+  const paramValues: any[] = [];
 
   function add(col: string, value: any) {
     insertCols.push(col);
-    params[col] = value;
+    paramValues.push(value);
   }
 
   // Common columns
@@ -212,20 +213,42 @@ export function recordProof(
     add("meta", metaStr);
   }
 
+  // Gap 1 & 2: user tracking and workspace scoping
+  if (cols.has("created_by")) {
+    add("created_by", (p.meta as any)?.createdBy ?? (p.meta as any)?.actorId ?? (p.meta as any)?.userId ?? null);
+  }
+  if (cols.has("workspace_id")) {
+    add("workspace_id", (p.meta as any)?.workspaceId ?? null);
+  }
+
+  // Storage client columns — always derive storage_key when not in meta
+  if (cols.has("storage_key")) {
+    let storageKey = (p.meta as any)?.storageKey ?? null;
+    if (!storageKey && p.path) {
+      const wsPrefix = (p.meta as any)?.workspaceId ?? "_global";
+      const basename = path.basename(p.path);
+      storageKey = `${wsPrefix}/proofs/doc-${p.doc_id}/${basename || `${ts}-${p.kind}`}`;
+    }
+    add("storage_key", storageKey);
+  }
+  if (cols.has("storage_provider")) {
+    add("storage_provider", (p.meta as any)?.storageProvider ?? getStorage().type);
+  }
+
   // Safety: ensure we at least have doc_id and ts to avoid empty INSERTs
   if (insertCols.length === 0) {
     throw new Error("proofs table not found or has no expected columns");
   }
 
   const colsSql = insertCols.join(", ");
-  const valsSql = insertCols.map((c) => "@" + c).join(", ");
+  const valsSql = insertCols.map(() => "?").join(", ");
   const sql = `INSERT INTO proofs (${colsSql}) VALUES (${valsSql})`;
 
-  const info = db.prepare(sql).run(params);
+  const info = await db.run(sql, paramValues);
 
   // Return a normalized ProofRow object for callers
   const out: ProofRow = {
-    id: String((info as any).lastInsertRowid ?? ""),
+    id: String(info.lastInsertRowid ?? ""),
     doc_id: p.doc_id,
     kind: p.kind,
     hash: p.hash,
@@ -254,8 +277,8 @@ export function recordProof(
 }
 
 /** List proofs for a doc (most recent first). Tolerates legacy/new schemas. */
-export function listProofsForDoc(docId: string, limit = 50): ProofRow[] {
-  const cols = getTableColumns("proofs");
+export async function listProofsForDoc(docId: string, limit = 50): Promise<ProofRow[]> {
+  const cols = await getTableColumns("proofs");
 
   // NOTE: use single-quoted string literals inside SQL, not "..."
   const kindExpr =
@@ -295,7 +318,7 @@ export function listProofsForDoc(docId: string, limit = 50): ProofRow[] {
     LIMIT ?
   `;
 
-  const rows = db.prepare(sql).all(docId, limit) as any[];
+  const rows = await db.queryAll<any>(sql, [docId, limit]);
 
   return rows.map((r) => ({
     id: String(r.id ?? ""),

@@ -2,9 +2,10 @@
 // Phase 5 - P1.1: Per-Document Proof Health endpoint
 import type { FastifyInstance } from "fastify";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { db, repoPath } from "../db";
+import { db } from "../db";
+import { readArtifactBuffer } from "../storage";
+import { checkDocAccess } from "../workspace/middleware";
+import { createWorkspaceStore } from "../workspace/store";
 
 function sha256HexBuf(b: Buffer) {
   return crypto.createHash("sha256").update(b).digest("hex");
@@ -19,6 +20,7 @@ type ExportRow = {
   kind: string | null;
   hash: string | null;
   path: string | null;
+  storage_key: string | null;
   ts: number;
 };
 
@@ -45,28 +47,26 @@ export interface ProofHealthResult {
  * Calculate proof health for a single document.
  * Checks export verification and compose integrity.
  */
-export function calculateProofHealth(docId: string): ProofHealthResult {
-  const exportRoot = repoPath("storage", "exports");
-
-  // Query exports for this doc
-  const exportRows = db.prepare(`
-    SELECT id, kind, hash, path, ts
+export async function calculateProofHealth(docId: string): Promise<ProofHealthResult> {
+  // Query exports for this doc (now includes storage_key)
+  const exportRows = await db.queryAll<ExportRow>(`
+    SELECT id, kind, hash, path, storage_key, ts
     FROM proofs
     WHERE doc_id = ? AND kind IN ('docx', 'pdf')
     ORDER BY ts DESC
     LIMIT 100
-  `).all(docId) as ExportRow[];
+  `, [docId]);
 
   // Query compose proofs for this doc
-  const composeRows = db.prepare(`
+  const composeRows = await db.queryAll<ComposeRow>(`
     SELECT id, sha256, payload, ts
     FROM proofs
     WHERE doc_id = ? AND (kind = 'ai:compose' OR type = 'ai:compose' OR type = 'ai:action')
     ORDER BY ts DESC
     LIMIT 100
-  `).all(docId) as ComposeRow[];
+  `, [docId]);
 
-  // Verify exports
+  // Verify exports — storage-first with filesystem fallback
   let exportPass = 0, exportFail = 0, exportMiss = 0;
   let latestExportVerifiedTs: number | null = null;
 
@@ -74,18 +74,17 @@ export function calculateProofHealth(docId: string): ProofHealthResult {
     const expected = String(r.hash || "");
     const filePath = String(r.path || "");
 
-    if (!filePath || !expected) {
+    if (!expected) {
       exportMiss++;
       continue;
     }
 
     try {
-      const fullPath = path.isAbsolute(filePath) ? filePath : path.join(exportRoot, filePath);
-      if (!fs.existsSync(fullPath)) {
+      const data = await readArtifactBuffer(r.storage_key, filePath || null);
+      if (!data) {
         exportMiss++;
         continue;
       }
-      const data = fs.readFileSync(fullPath);
       const actual = "sha256:" + sha256HexBuf(data);
       if (actual === expected) {
         exportPass++;
@@ -200,12 +199,15 @@ export default async function proofHealthRoutes(app: FastifyInstance) {
     const { id } = req.params;
 
     // Check if doc exists
-    const doc = db.prepare("SELECT id FROM docs WHERE id = ?").get(id);
+    const doc = await db.queryOne<{ id: string }>("SELECT id FROM docs WHERE id = ?", [id]);
     if (!doc) {
       return reply.status(404).send({ error: "doc_not_found" });
     }
 
-    const health = calculateProofHealth(id);
+    // Verify caller has access to this document
+    if (!checkDocAccess(db, req, reply, id, 'viewer')) return;
+
+    const health = await calculateProofHealth(id);
     return reply.send(health);
   });
 
@@ -219,14 +221,34 @@ export default async function proofHealthRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "docIds_required" });
     }
 
+    const userId = req.user?.id;
+    if (!userId) {
+      return reply.status(401).send({ error: "unauthorized" });
+    }
+
     // Limit batch size
     const limitedIds = docIds.slice(0, 50);
     const results: Record<string, ProofHealthResult> = {};
+    const accessDenied: string[] = [];
+    const workspaceStore = createWorkspaceStore(db);
 
     for (const id of limitedIds) {
-      results[id] = calculateProofHealth(id);
+      // Check doc exists and get its workspace
+      const docRow = await db.queryOne<{ id: string; workspace_id: string | null }>("SELECT id, workspace_id FROM docs WHERE id = ?", [id]);
+      if (!docRow) continue;
+
+      // If doc is workspace-scoped, verify user has access to that workspace
+      if (docRow.workspace_id) {
+        const role = workspaceStore.getUserRole(docRow.workspace_id, userId);
+        if (!role) {
+          accessDenied.push(id);
+          continue;
+        }
+      }
+
+      results[id] = await calculateProofHealth(id);
     }
 
-    return reply.send({ results });
+    return reply.send({ results, accessDenied });
   });
 }

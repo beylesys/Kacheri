@@ -3,6 +3,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { db, repoPath } from "./db";
+import { getStorage, readArtifactBuffer } from "./storage";
 
 export type ProvFilters = {
   action?: string;      // e.g., "create", "rename", "export:pdf", "ai:compose", "ai:action"
@@ -12,24 +13,28 @@ export type ProvFilters = {
   to?: number;          // end ts (inclusive)
 };
 
-export function recordProvenance(opts: {
+export async function recordProvenance(opts: {
   docId: string;
   action: string;
   actor: string; // "human" | "system" | "ai"
+  actorId?: string | null;
+  workspaceId?: string | null;
   details?: any;
-}) {
+}): Promise<{ id: number; ts: number }> {
   const ts = Date.now();
-  const stmt = db.prepare(
-    `INSERT INTO provenance (doc_id, action, actor, ts, details)
-     VALUES (@doc_id, @action, @actor, @ts, @details)`
+  const info = await db.run(
+    `INSERT INTO provenance (doc_id, action, actor, actor_id, workspace_id, ts, details)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      opts.docId,
+      opts.action,
+      opts.actor,
+      opts.actorId ?? null,
+      opts.workspaceId ?? null,
+      ts,
+      opts.details ? JSON.stringify(opts.details) : null,
+    ]
   );
-  const info = stmt.run({
-    doc_id: opts.docId,
-    action: opts.action,
-    actor: opts.actor,
-    ts,
-    details: opts.details ? JSON.stringify(opts.details) : null,
-  });
   return { id: Number(info.lastInsertRowid), ts };
 }
 
@@ -42,7 +47,7 @@ export function recordProvenance(opts: {
  * - Dedupe: if a provenance row and a proof row share the same
  *   (docId, action, proofHash), we keep the proof-backed row only.
  */
-export function listProvenance(docId: string, f: ProvFilters = {}) {
+export async function listProvenance(docId: string, f: ProvFilters = {}): Promise<any[]> {
   const limit = Math.min(f.limit ?? 50, 200);
 
   const byTs = (a: any, b: any) =>
@@ -54,11 +59,11 @@ export function listProvenance(docId: string, f: ProvFilters = {}) {
     (f.to ? ts <= f.to : true);
 
   // 1) Provenance table
-  const params: any = { doc_id: docId };
-  const where: string[] = ["doc_id = @doc_id"];
-  if (f.before) { where.push("ts < @before"); params.before = f.before; }
-  if (f.from)   { where.push("ts >= @from");  params.from = f.from; }
-  if (f.to)     { where.push("ts <= @to");    params.to = f.to; }
+  const where: string[] = ["doc_id = ?"];
+  const params: any[] = [docId];
+  if (f.before) { where.push("ts < ?"); params.push(f.before); }
+  if (f.from)   { where.push("ts >= ?"); params.push(f.from); }
+  if (f.to)     { where.push("ts <= ?"); params.push(f.to); }
 
   const sql = `
     SELECT id, doc_id as docId, action, actor, ts,
@@ -68,7 +73,7 @@ export function listProvenance(docId: string, f: ProvFilters = {}) {
     ORDER BY ts DESC
     LIMIT 500
   `;
-  const provRowsRaw = db.prepare(sql).all(params) as Array<any>;
+  const provRowsRaw = await db.queryAll<any>(sql, params);
   const provRows = provRowsRaw
     .map((r: any) => ({
       id: Number(r.id),
@@ -88,23 +93,21 @@ export function listProvenance(docId: string, f: ProvFilters = {}) {
     "ai:rewriteConstrained",
   ] as const;
 
-  const proofs = db.prepare(`
-    SELECT id, doc_id, kind, hash, meta, ts
-    FROM proofs
-    WHERE doc_id = ? AND kind IN (${aiKinds.map(() => '?').join(',')})
-    ORDER BY ts DESC
-    LIMIT 500
-  `).all(
-    docId,
-    ...aiKinds
-  ) as Array<{
+  const proofs = await db.queryAll<{
     id: number;
     doc_id: string;
     kind: string | null;
     hash: string | null;
     meta: string | null;
     ts: number;
-  }>;
+  }>(
+    `SELECT id, doc_id, kind, hash, meta, ts
+     FROM proofs
+     WHERE doc_id = ? AND kind IN (${aiKinds.map(() => '?').join(',')})
+     ORDER BY ts DESC
+     LIMIT 500`,
+    [docId, ...aiKinds]
+  );
 
   const aiRows = proofs
     .map((p) => ({
@@ -136,6 +139,112 @@ export function listProvenance(docId: string, f: ProvFilters = {}) {
     const h = (r as any)?.details?.proofHash;
     if (typeof h !== "string" || !h.length) return true;
     const key = `${r.docId}|${r.action}|${h}`;
+    return !aiKeys.has(key);
+  });
+
+  // 3) Merge, sort, limit
+  const merged = [...provDeduped, ...aiRows].sort(byTs).slice(0, limit);
+  return merged;
+}
+
+/**
+ * Canvas-scoped provenance timeline.
+ * Queries provenance rows where details.canvasId matches,
+ * plus canvas AI proof rows from the proofs table.
+ * Same merge/dedupe pattern as listProvenance.
+ */
+export async function listCanvasProvenance(canvasId: string, f: ProvFilters = {}): Promise<any[]> {
+  const limit = Math.min(f.limit ?? 50, 200);
+
+  const byTs = (a: any, b: any) =>
+    a.ts === b.ts ? (b.id - a.id) : (b.ts - a.ts);
+
+  const inRange = (ts: number) =>
+    (f.before ? ts < f.before : true) &&
+    (f.from ? ts >= f.from : true) &&
+    (f.to ? ts <= f.to : true);
+
+  // 1) Provenance table: canvas ops stored with json_extract on details
+  const where: string[] = ["json_extract(details, '$.canvasId') = ?"];
+  const params: any[] = [canvasId];
+  if (f.before) { where.push("ts < ?"); params.push(f.before); }
+  if (f.from)   { where.push("ts >= ?"); params.push(f.from); }
+  if (f.to)     { where.push("ts <= ?"); params.push(f.to); }
+
+  const sql = `
+    SELECT id, doc_id as docId, action, actor, ts,
+           COALESCE(details,'null') as details
+    FROM provenance
+    WHERE ${where.join(" AND ")}
+    ORDER BY ts DESC
+    LIMIT 500
+  `;
+  const provRowsRaw = await db.queryAll<any>(sql, params);
+  const provRows = provRowsRaw
+    .map((r: any) => ({
+      id: Number(r.id),
+      docId: String(r.docId),
+      action: String(r.action),
+      actor: String(r.actor),
+      ts: Number(r.ts),
+      details: safeParseJson(r.details),
+    }))
+    .filter(r => (!f.action ? true : matchActionFilter(r.action, f.action)));
+
+  // 2) Canvas proof rows (design:* kinds)
+  const designKinds = [
+    "design:generate",
+    "design:edit",
+    "design:style",
+    "design:content",
+    "design:compose",
+    "design:export",
+    "design:image",
+  ] as const;
+
+  const proofs = await db.queryAll<{
+    id: number;
+    doc_id: string;
+    kind: string | null;
+    hash: string | null;
+    meta: string | null;
+    ts: number;
+  }>(
+    `SELECT id, doc_id, kind, hash, meta, ts
+     FROM proofs
+     WHERE kind IN (${designKinds.map(() => '?').join(',')})
+       AND json_extract(meta, '$.canvasId') = ?
+     ORDER BY ts DESC
+     LIMIT 500`,
+    [...designKinds, canvasId]
+  );
+
+  const aiRows = proofs
+    .map((p) => ({
+      id: Number(p.id),
+      docId: String(p.doc_id),
+      action: String(p.kind || "design:generate"),
+      actor: "ai",
+      ts: Number(p.ts),
+      details: withProofHash(safeParseJson(p.meta), String(p.hash || "")),
+    }))
+    .filter((r) => inRange(r.ts))
+    .filter((r) => (!f.action ? true : matchActionFilter(r.action, f.action)));
+
+  // 2b) Dedupe key-set
+  const aiKeys = new Set<string>();
+  for (const r of aiRows) {
+    const h = (r as any)?.details?.proofHash;
+    if (typeof h === "string" && h.length) {
+      aiKeys.add(`${canvasId}|${r.action}|${h}`);
+    }
+  }
+
+  const provDeduped = provRows.filter((r) => {
+    if (!r.action.startsWith("design:")) return true;
+    const h = (r as any)?.details?.proofHash;
+    if (typeof h !== "string" || !h.length) return true;
+    const key = `${canvasId}|${r.action}|${h}`;
     return !aiKeys.has(key);
   });
 
@@ -184,25 +293,31 @@ export function ensureDir(p: string) {
  *  - new call:    writeProofPacket(docId, packet)
  * Writes JSON proof to data/proofs/doc-<id>/ and inserts into proofs(type/sha256/path/payload/ts).
  */
-export function writeProofPacket(...args: any[]) {
+export async function writeProofPacket(...args: any[]) {
   const isNewStyle = args.length === 2 && typeof args[0] === "string";
   if (isNewStyle) {
     const [docId, packet] = args as [string, any];
     const type = String(packet?.type || packet?.kind || "proof");
-    const onDisk = writeProofJson(docId, type, packet);
+    const wsId = packet?.workspaceId ?? null;
+    const { onDisk, storageKey } = await writeProofJson(docId, type, packet, wsId);
     const sha = sha256(JSON.stringify(packet));
-    db.prepare(`
-      INSERT INTO proofs (doc_id, type, sha256, path, payload, ts)
-      VALUES (@doc_id, @type, @sha, @path, @payload, @ts)
-    `).run({
-      doc_id: docId,
-      type,
-      sha,
-      path: onDisk,
-      payload: JSON.stringify(packet),
-      ts: Date.now(),
-    });
-    return { ts: Date.now(), path: onDisk, sha256: sha };
+    await db.run(
+      `INSERT INTO proofs (doc_id, type, sha256, path, payload, ts, created_by, workspace_id, storage_key, storage_provider)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        docId,
+        type,
+        sha,
+        onDisk,
+        JSON.stringify(packet),
+        Date.now(),
+        packet?.createdBy ?? packet?.actorId ?? null,
+        wsId,
+        storageKey,
+        getStorage().type,
+      ]
+    );
+    return { ts: Date.now(), path: onDisk, sha256: sha, storageKey };
   }
 
   // legacy shape
@@ -213,85 +328,126 @@ export function writeProofPacket(...args: any[]) {
     filePath?: string | null;
     payload: any;
   };
-  const onDisk = writeProofJson(opts.docId, opts.type, opts.payload);
+  const wsId = opts.payload?.workspaceId ?? null;
+  const { onDisk, storageKey } = await writeProofJson(opts.docId, opts.type, opts.payload, wsId);
   const sha = sha256(JSON.stringify(opts.payload));
-  db.prepare(`
-    INSERT INTO proofs (doc_id, related_provenance_id, type, sha256, path, payload, ts)
-    VALUES (@doc_id, @related, @type, @sha, @path, @payload, @ts)
-  `).run({
-    doc_id: opts.docId,
-    related: opts.relatedProvenanceId ?? null,
-    type: opts.type,
-    sha,
-    path: opts.filePath || onDisk,
-    payload: JSON.stringify(opts.payload),
-    ts: Date.now(),
-  });
-  return { ts: Date.now(), path: onDisk, sha256: sha };
+  await db.run(
+    `INSERT INTO proofs (doc_id, related_provenance_id, type, sha256, path, payload, ts, created_by, workspace_id, storage_key, storage_provider)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      opts.docId,
+      opts.relatedProvenanceId ?? null,
+      opts.type,
+      sha,
+      opts.filePath || onDisk,
+      JSON.stringify(opts.payload),
+      Date.now(),
+      opts.payload?.createdBy ?? opts.payload?.actorId ?? null,
+      wsId,
+      storageKey,
+      getStorage().type,
+    ]
+  );
+  return { ts: Date.now(), path: onDisk, sha256: sha, storageKey };
 }
 
-function writeProofJson(docId: string, type: string, payload: any) {
+async function writeProofJson(
+  docId: string,
+  type: string,
+  payload: any,
+  workspaceId?: string | null
+): Promise<{ onDisk: string; storageKey: string }> {
   const ts = Date.now();
-  const proofsDir = repoPath("data/proofs", `doc-${docId}`);
-  ensureDir(proofsDir);
   const safeType = String(type || "proof").replace(/[^a-z0-9._-]/gi, "_");
   const filename = `${ts}-${safeType}.json`;
+
+  // Workspace-scoped storage key
+  const wsPrefix = workspaceId || "_global";
+  const storageKey = `${wsPrefix}/proofs/doc-${docId}/${filename}`;
+
+  const data = Buffer.from(JSON.stringify(payload, null, 2), "utf8");
+  await getStorage().write(storageKey, data, "application/json");
+
+  // Compute legacy onDisk path for backward compat (DB `path` column)
+  const proofsDir = repoPath("data/proofs", `doc-${docId}`);
   const onDisk = path.resolve(proofsDir, filename);
-  fs.writeFileSync(onDisk, JSON.stringify(payload, null, 2), "utf8");
-  return onDisk;
+
+  return { onDisk, storageKey };
 }
 
 /**
  * Convenience insert for normalized proofs (kind/hash/path/meta).
  * Accepts either { docId, ... } or { doc_id, ... }.
  */
-export function recordProof(opts: {
+export async function recordProof(opts: {
   docId?: string;
   doc_id?: string;
   kind: string;
   hash: string;
   path: string;
   meta?: any;
-}) {
+  createdBy?: string | null;
+  workspaceId?: string | null;
+  storageKey?: string | null;
+  storageProvider?: string | null;
+}): Promise<{ doc_id: string; ts: number }> {
   const doc_id = String(opts.docId ?? opts.doc_id ?? "");
   const ts = Date.now();
-  db.prepare(`
-    INSERT INTO proofs (doc_id, kind, hash, path, meta, ts)
-    VALUES (@doc_id, @kind, @hash, @path, @meta, @ts)
-  `).run({
-    doc_id,
-    kind: String(opts.kind),
-    hash: String(opts.hash),
-    path: String(opts.path),
-    meta: opts.meta ? JSON.stringify(opts.meta) : null,
-    ts,
-  });
+
+  // Derive storage_key if not explicitly provided
+  let storageKey = opts.storageKey ?? (opts.meta as any)?.storageKey ?? null;
+  if (!storageKey && opts.path) {
+    const wsPrefix = opts.workspaceId ?? (opts.meta as any)?.workspaceId ?? "_global";
+    const safeKind = String(opts.kind || "proof").replace(/[^a-z0-9._-]/gi, "_");
+    const basename = path.basename(opts.path);
+    storageKey = `${wsPrefix}/proofs/doc-${doc_id}/${basename || `${ts}-${safeKind}`}`;
+  }
+
+  const storageProvider = opts.storageProvider ?? (opts.meta as any)?.storageProvider ?? getStorage().type;
+
+  await db.run(
+    `INSERT INTO proofs (doc_id, kind, hash, path, meta, ts, created_by, workspace_id, storage_key, storage_provider)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      doc_id,
+      String(opts.kind),
+      String(opts.hash),
+      String(opts.path),
+      opts.meta ? JSON.stringify(opts.meta) : null,
+      ts,
+      opts.createdBy ?? null,
+      opts.workspaceId ?? null,
+      storageKey,
+      storageProvider,
+    ]
+  );
   return { doc_id, ts };
 }
 
-export function listExports(docId: string) {
-  const rows = db
-    .prepare(
-      `SELECT id, ts, sha256, path, payload
-       FROM proofs
-       WHERE doc_id = @doc_id AND type = 'export:pdf'
-       ORDER BY ts DESC`
-    )
-    .all({ doc_id: docId });
+export async function listExports(docId: string) {
+  const rows = await db.queryAll<any>(
+    `SELECT id, ts, sha256, path, storage_key, payload
+     FROM proofs
+     WHERE doc_id = ? AND type = 'export:pdf'
+     ORDER BY ts DESC`,
+    [docId]
+  );
 
-  return rows.map((r: any) => {
+  const results = [];
+  for (const r of rows) {
     let verified = false;
-    if (r.path && fs.existsSync(r.path)) {
-      const data = fs.readFileSync(r.path);
-      verified = sha256(data) === r.sha256;
+    const buf = await readArtifactBuffer(r.storage_key, r.path);
+    if (buf) {
+      verified = sha256(buf) === r.sha256;
     }
-    return {
+    results.push({
       id: r.id,
       ts: r.ts,
       sha256: r.sha256,
       path: r.path,
       verified,
       proof: JSON.parse(r.payload),
-    };
-  });
+    });
+  }
+  return results;
 }

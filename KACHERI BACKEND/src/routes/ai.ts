@@ -3,6 +3,8 @@ import { FastifyInstance } from "fastify";
 import { recordProvenance } from "../provenance";
 import { runSandboxedAiAction } from "../sandbox";
 import { AI_RATE_LIMITS } from "../middleware/rateLimit";
+import { checkDocAccess, getUserId } from "../workspace/middleware";
+import { db } from "../db";
 
 type AiAction = "summarize" | "extract_tasks" | "rewrite_for_clarity";
 
@@ -23,15 +25,22 @@ export default async function aiRoutes(app: FastifyInstance) {
     const action = (req.params.action || "").toString() as AiAction;
     const selection = (req.body?.selectionText ?? "").toString();
 
+    // Doc-level permission check (editor+ required for AI operations)
+    if (!checkDocAccess(db, req, reply, docId, "editor")) return;
+
     // Derive actor from header; fall back to plain "ai"
     const devUser = (req.headers["x-dev-user"] || "").toString().trim();
     const actor = devUser ? `ai:${devUser}` : "ai";
+    const userId = getUserId(req) || "user:local";
+    const workspaceId = (req.headers["x-workspace-id"] as string | undefined)?.toString().trim();
 
     // Record a provenance row first so the sandbox can link to it
-    const prov = recordProvenance({
+    const prov = await recordProvenance({
       docId,
       action: `ai:${action}`,
       actor,
+      actorId: userId,
+      workspaceId: workspaceId ?? null,
       details: {
         selectionBytes: Buffer.byteLength(selection, "utf8"),
       },

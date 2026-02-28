@@ -1,0 +1,11 @@
+{
+  "name": "@beyle/kcl",
+  "version": "1.0.0",
+  "description": "Kacheri Component Library — framework-agnostic custom elements for Beyle Design Studio",
+  "main": "kcl.ts",
+  "type": "module",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {}
+}

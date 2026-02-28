@@ -41,6 +41,12 @@ export interface InviteWithWorkspace extends Invite {
 const INVITE_TOKEN_LENGTH = 32;
 const DEFAULT_EXPIRY_DAYS = 7;
 
+const INVITE_SELECT_COLS = `
+  id, workspace_id AS workspaceId, invite_token AS inviteToken, invited_email AS invitedEmail,
+  invited_by AS invitedBy, role, status, created_at AS createdAt, expires_at AS expiresAt,
+  accepted_at AS acceptedAt, accepted_by AS acceptedBy
+`;
+
 /**
  * Generate a cryptographically secure invite token (URL-safe).
  */
@@ -48,76 +54,28 @@ export function generateInviteToken(): string {
   return randomBytes(INVITE_TOKEN_LENGTH).toString('base64url');
 }
 
-// Prepared statements
-const insertInvite = db.prepare(`
-  INSERT INTO workspace_invites (workspace_id, invite_token, invited_email, invited_by, role, status, created_at, expires_at)
-  VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
-`);
-
-const selectByToken = db.prepare(`
-  SELECT id, workspace_id AS workspaceId, invite_token AS inviteToken, invited_email AS invitedEmail,
-         invited_by AS invitedBy, role, status, created_at AS createdAt, expires_at AS expiresAt,
-         accepted_at AS acceptedAt, accepted_by AS acceptedBy
-  FROM workspace_invites
-  WHERE invite_token = ?
-`);
-
-const selectByWorkspace = db.prepare(`
-  SELECT id, workspace_id AS workspaceId, invite_token AS inviteToken, invited_email AS invitedEmail,
-         invited_by AS invitedBy, role, status, created_at AS createdAt, expires_at AS expiresAt,
-         accepted_at AS acceptedAt, accepted_by AS acceptedBy
-  FROM workspace_invites
-  WHERE workspace_id = ?
-  ORDER BY created_at DESC
-`);
-
-const selectPendingByWorkspace = db.prepare(`
-  SELECT id, workspace_id AS workspaceId, invite_token AS inviteToken, invited_email AS invitedEmail,
-         invited_by AS invitedBy, role, status, created_at AS createdAt, expires_at AS expiresAt,
-         accepted_at AS acceptedAt, accepted_by AS acceptedBy
-  FROM workspace_invites
-  WHERE workspace_id = ? AND status = 'pending' AND expires_at > ?
-  ORDER BY created_at DESC
-`);
-
-const updateStatus = db.prepare(`
-  UPDATE workspace_invites SET status = ? WHERE id = ?
-`);
-
-const updateAccepted = db.prepare(`
-  UPDATE workspace_invites SET status = 'accepted', accepted_at = ?, accepted_by = ? WHERE id = ?
-`);
-
-const deleteExpired = db.prepare(`
-  DELETE FROM workspace_invites WHERE status = 'pending' AND expires_at < ?
-`);
-
-const selectById = db.prepare(`
-  SELECT id, workspace_id AS workspaceId, invite_token AS inviteToken, invited_email AS invitedEmail,
-         invited_by AS invitedBy, role, status, created_at AS createdAt, expires_at AS expiresAt,
-         accepted_at AS acceptedAt, accepted_by AS acceptedBy
-  FROM workspace_invites
-  WHERE id = ?
-`);
-
 /**
  * Create a new workspace invite.
  */
-export function createInvite(params: CreateInviteParams): Invite {
+export async function createInvite(params: CreateInviteParams): Promise<Invite> {
   const now = Date.now();
   const expiresInMs = (params.expiresInDays ?? DEFAULT_EXPIRY_DAYS) * 24 * 60 * 60 * 1000;
   const expiresAt = now + expiresInMs;
   const token = generateInviteToken();
   const role = params.role ?? 'editor';
 
-  const result = insertInvite.run(
-    params.workspaceId,
-    token,
-    params.invitedEmail.toLowerCase().trim(),
-    params.invitedBy,
-    role,
-    now,
-    expiresAt
+  const result = await db.run(
+    `INSERT INTO workspace_invites (workspace_id, invite_token, invited_email, invited_by, role, status, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    [
+      params.workspaceId,
+      token,
+      params.invitedEmail.toLowerCase().trim(),
+      params.invitedBy,
+      role,
+      now,
+      expiresAt,
+    ]
   );
 
   return {
@@ -138,27 +96,33 @@ export function createInvite(params: CreateInviteParams): Invite {
 /**
  * Get an invite by its token.
  */
-export function getInviteByToken(token: string): Invite | null {
-  const row = selectByToken.get(token) as Invite | undefined;
+export async function getInviteByToken(token: string): Promise<Invite | null> {
+  const row = await db.queryOne<Invite>(
+    `SELECT ${INVITE_SELECT_COLS} FROM workspace_invites WHERE invite_token = ?`,
+    [token]
+  );
   return row ?? null;
 }
 
 /**
  * Get an invite by ID.
  */
-export function getInviteById(inviteId: number): Invite | null {
-  const row = selectById.get(inviteId) as Invite | undefined;
+export async function getInviteById(inviteId: number): Promise<Invite | null> {
+  const row = await db.queryOne<Invite>(
+    `SELECT ${INVITE_SELECT_COLS} FROM workspace_invites WHERE id = ?`,
+    [inviteId]
+  );
   return row ?? null;
 }
 
 /**
  * Get invite by token with workspace info (for accept page).
  */
-export function getInviteWithWorkspace(token: string): InviteWithWorkspace | null {
-  const invite = getInviteByToken(token);
+export async function getInviteWithWorkspace(token: string): Promise<InviteWithWorkspace | null> {
+  const invite = await getInviteByToken(token);
   if (!invite) return null;
 
-  const workspace = workspaceStore.getById(invite.workspaceId);
+  const workspace = await workspaceStore.getById(invite.workspaceId);
   if (!workspace) return null;
 
   return {
@@ -171,16 +135,26 @@ export function getInviteWithWorkspace(token: string): InviteWithWorkspace | nul
 /**
  * List all invites for a workspace.
  */
-export function listInvites(workspaceId: string): Invite[] {
-  return selectByWorkspace.all(workspaceId) as Invite[];
+export async function listInvites(workspaceId: string): Promise<Invite[]> {
+  return db.queryAll<Invite>(
+    `SELECT ${INVITE_SELECT_COLS} FROM workspace_invites
+     WHERE workspace_id = ?
+     ORDER BY created_at DESC`,
+    [workspaceId]
+  );
 }
 
 /**
  * List pending (non-expired) invites for a workspace.
  */
-export function listPendingInvites(workspaceId: string): Invite[] {
+export async function listPendingInvites(workspaceId: string): Promise<Invite[]> {
   const now = Date.now();
-  return selectPendingByWorkspace.all(workspaceId, now) as Invite[];
+  return db.queryAll<Invite>(
+    `SELECT ${INVITE_SELECT_COLS} FROM workspace_invites
+     WHERE workspace_id = ? AND status = 'pending' AND expires_at > ?
+     ORDER BY created_at DESC`,
+    [workspaceId, now]
+  );
 }
 
 /**
@@ -188,8 +162,12 @@ export function listPendingInvites(workspaceId: string): Invite[] {
  * Validates: token exists, pending, not expired, email matches (optional check).
  * Returns the workspace if successful.
  */
-export function acceptInvite(token: string, userId: string, userEmail?: string): { success: true; workspaceId: string } | { success: false; error: string } {
-  const invite = getInviteByToken(token);
+export async function acceptInvite(
+  token: string,
+  userId: string,
+  userEmail?: string
+): Promise<{ success: true; workspaceId: string } | { success: false; error: string }> {
+  const invite = await getInviteByToken(token);
 
   if (!invite) {
     return { success: false, error: 'Invite not found' };
@@ -200,7 +178,10 @@ export function acceptInvite(token: string, userId: string, userEmail?: string):
   }
 
   if (invite.expiresAt < Date.now()) {
-    updateStatus.run('expired', invite.id);
+    await db.run(
+      `UPDATE workspace_invites SET status = ? WHERE id = ?`,
+      ['expired', invite.id]
+    );
     return { success: false, error: 'Invite has expired' };
   }
 
@@ -210,17 +191,23 @@ export function acceptInvite(token: string, userId: string, userEmail?: string):
   }
 
   // Check if user is already a member
-  const existingRole = workspaceStore.getUserRole(invite.workspaceId, userId);
+  const existingRole = await workspaceStore.getUserRole(invite.workspaceId, userId);
   if (existingRole) {
     // User already a member, just mark invite as accepted
-    updateAccepted.run(Date.now(), userId, invite.id);
+    await db.run(
+      `UPDATE workspace_invites SET status = 'accepted', accepted_at = ?, accepted_by = ? WHERE id = ?`,
+      [Date.now(), userId, invite.id]
+    );
     return { success: true, workspaceId: invite.workspaceId };
   }
 
   // Add user as member with invited role
   try {
-    workspaceStore.addMember(invite.workspaceId, userId, invite.role);
-    updateAccepted.run(Date.now(), userId, invite.id);
+    await workspaceStore.addMember(invite.workspaceId, userId, invite.role);
+    await db.run(
+      `UPDATE workspace_invites SET status = 'accepted', accepted_at = ?, accepted_by = ? WHERE id = ?`,
+      [Date.now(), userId, invite.id]
+    );
     return { success: true, workspaceId: invite.workspaceId };
   } catch (err) {
     return { success: false, error: 'Failed to add member to workspace' };
@@ -230,32 +217,38 @@ export function acceptInvite(token: string, userId: string, userEmail?: string):
 /**
  * Revoke an invite (by workspace admin).
  */
-export function revokeInvite(inviteId: number, workspaceId: string): boolean {
-  const invite = getInviteById(inviteId);
+export async function revokeInvite(inviteId: number, workspaceId: string): Promise<boolean> {
+  const invite = await getInviteById(inviteId);
   if (!invite || invite.workspaceId !== workspaceId) {
     return false;
   }
   if (invite.status !== 'pending') {
     return false;
   }
-  updateStatus.run('revoked', inviteId);
+  await db.run(
+    `UPDATE workspace_invites SET status = ? WHERE id = ?`,
+    ['revoked', inviteId]
+  );
   return true;
 }
 
 /**
  * Cleanup expired invites (can be called periodically).
  */
-export function cleanupExpired(): number {
+export async function cleanupExpired(): Promise<number> {
   const now = Date.now();
-  const result = deleteExpired.run(now);
+  const result = await db.run(
+    `DELETE FROM workspace_invites WHERE status = 'pending' AND expires_at < ?`,
+    [now]
+  );
   return result.changes;
 }
 
 /**
  * Check if an invite is valid (pending and not expired).
  */
-export function isInviteValid(token: string): boolean {
-  const invite = getInviteByToken(token);
+export async function isInviteValid(token: string): Promise<boolean> {
+  const invite = await getInviteByToken(token);
   if (!invite) return false;
   if (invite.status !== 'pending') return false;
   if (invite.expiresAt < Date.now()) return false;

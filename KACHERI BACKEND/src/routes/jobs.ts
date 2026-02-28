@@ -13,6 +13,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { getJobQueue } from "../jobs/queue";
 import { JobType, JobStatus, JobOptions } from "../jobs/types";
+import { requirePlatformAdmin, checkDocAccess } from "../workspace/middleware";
+import { db } from "../db";
 
 /* ---------- Request Types ---------- */
 interface JobIdParams {
@@ -52,6 +54,7 @@ export default async function jobsRoutes(app: FastifyInstance) {
       req: FastifyRequest<{ Querystring: ListJobsQuery }>,
       reply: FastifyReply
     ) => {
+      if (!requirePlatformAdmin(req, reply)) return;
       const { type, status, docId, limit, offset } = req.query;
       const limitNum = limit ? parseInt(limit, 10) : 50;
       const offsetNum = offset ? parseInt(offset, 10) : 0;
@@ -95,7 +98,8 @@ export default async function jobsRoutes(app: FastifyInstance) {
    * GET /jobs/stats
    * Get queue statistics
    */
-  app.get("/jobs/stats", async (_req: FastifyRequest, reply: FastifyReply) => {
+  app.get("/jobs/stats", async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!requirePlatformAdmin(req, reply)) return;
     const stats = await queue.getStats();
 
     return reply.send({
@@ -119,6 +123,7 @@ export default async function jobsRoutes(app: FastifyInstance) {
       req: FastifyRequest<{ Params: JobIdParams }>,
       reply: FastifyReply
     ) => {
+      if (!requirePlatformAdmin(req, reply)) return;
       const { id } = req.params;
       const job = await queue.getJob(id);
 
@@ -140,10 +145,11 @@ export default async function jobsRoutes(app: FastifyInstance) {
       req: FastifyRequest<{ Body: CreateJobBody }>,
       reply: FastifyReply
     ) => {
+      if (!requirePlatformAdmin(req, reply)) return;
       const { type, docId, payload, options } = req.body;
 
-      // Get user ID from request (simplified - use auth in production)
-      const userId = (req as any).userId ?? "system";
+      // Get user ID from authenticated request
+      const userId = req.user?.id ?? "system";
 
       if (!type) {
         return reply.code(400).send({ error: "Job type is required" });
@@ -169,6 +175,7 @@ export default async function jobsRoutes(app: FastifyInstance) {
       req: FastifyRequest<{ Params: JobIdParams }>,
       reply: FastifyReply
     ) => {
+      if (!requirePlatformAdmin(req, reply)) return;
       const { id } = req.params;
       const cancelled = await queue.cancel(id);
 
@@ -197,6 +204,7 @@ export default async function jobsRoutes(app: FastifyInstance) {
       req: FastifyRequest<{ Params: JobIdParams }>,
       reply: FastifyReply
     ) => {
+      if (!requirePlatformAdmin(req, reply)) return;
       const { id } = req.params;
       const retried = await queue.retry(id);
 
@@ -226,6 +234,7 @@ export default async function jobsRoutes(app: FastifyInstance) {
       reply: FastifyReply
     ) => {
       const { docId } = req.params;
+      if (!checkDocAccess(db, req, reply, docId, 'viewer')) return;
       const jobs = await queue.getJobsByDoc(docId);
 
       return reply.send({
@@ -246,6 +255,7 @@ export default async function jobsRoutes(app: FastifyInstance) {
       req: FastifyRequest<{ Body: { olderThanDays?: number } }>,
       reply: FastifyReply
     ) => {
+      if (!requirePlatformAdmin(req, reply)) return;
       const days = req.body?.olderThanDays ?? 7;
       const olderThanMs = days * 24 * 60 * 60 * 1000;
       const deleted = await queue.cleanup(olderThanMs);

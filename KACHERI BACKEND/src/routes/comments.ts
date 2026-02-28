@@ -2,7 +2,7 @@
 // REST endpoints for document comments with threading and mentions.
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import {
   createComment,
   getComment,
@@ -11,6 +11,7 @@ import {
   deleteComment,
   resolveThread,
   reopenThread,
+  bulkResolveThreads,
   type CreateCommentParams,
   type ListCommentsOptions,
 } from '../store/comments';
@@ -24,7 +25,7 @@ import {
 import { wsBroadcast, broadcastToUser } from '../realtime/globalHub';
 import { createNotification } from '../store/notifications';
 
-export function createCommentRoutes(db: Database) {
+export function createCommentRoutes(db: DbAdapter) {
   return async function commentRoutes(app: FastifyInstance) {
     // Helper to get user ID from request
     function requireUser(req: FastifyRequest, reply: FastifyReply): string | null {
@@ -37,13 +38,13 @@ export function createCommentRoutes(db: Database) {
     }
 
     // Helper to check doc access and set req.docRole
-    function checkDocAccess(
+    async function checkDocAccess(
       req: FastifyRequest,
       reply: FastifyReply,
       docId: string,
       requiredRole: 'viewer' | 'commenter' | 'editor' | 'owner'
-    ): boolean {
-      const role = getEffectiveDocRole(db, docId, req);
+    ): Promise<boolean> {
+      const role = await getEffectiveDocRole(db, docId, req);
       if (!role) {
         reply.code(403).send({ error: 'Access denied' });
         return false;
@@ -60,10 +61,24 @@ export function createCommentRoutes(db: Database) {
     // GET /docs/:id/comments
     // List all comments for a document
     // Requires: viewer access
+    // Supports: authorId, mentionsUser, unresolvedOnly, from, to, search, limit, offset, sortBy filters
     // -------------------------------------------
     app.get<{
       Params: { id: string };
-      Querystring: { includeDeleted?: string; includeResolved?: string; threadId?: string };
+      Querystring: {
+        includeDeleted?: string;
+        includeResolved?: string;
+        threadId?: string;
+        authorId?: string;
+        mentionsUser?: string;
+        unresolvedOnly?: string;
+        from?: string;
+        to?: string;
+        search?: string;
+        limit?: string;
+        offset?: string;
+        sortBy?: string;
+      };
     }>(
       '/docs/:id/comments',
       async (req, reply) => {
@@ -73,22 +88,51 @@ export function createCommentRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check viewer+ access
-        if (!checkDocAccess(req, reply, docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, docId, 'viewer')) return;
+
+        // Parse numeric params
+        const fromVal = req.query.from ? parseInt(req.query.from, 10) : undefined;
+        const toVal = req.query.to ? parseInt(req.query.to, 10) : undefined;
+        const limitVal = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
+        const offsetVal = req.query.offset ? parseInt(req.query.offset, 10) : undefined;
+
+        // Validate numeric params
+        if (fromVal !== undefined && isNaN(fromVal)) {
+          return reply.code(400).send({ error: 'Invalid from parameter' });
+        }
+        if (toVal !== undefined && isNaN(toVal)) {
+          return reply.code(400).send({ error: 'Invalid to parameter' });
+        }
+        if (limitVal !== undefined && isNaN(limitVal)) {
+          return reply.code(400).send({ error: 'Invalid limit parameter' });
+        }
+        if (offsetVal !== undefined && isNaN(offsetVal)) {
+          return reply.code(400).send({ error: 'Invalid offset parameter' });
+        }
 
         const options: ListCommentsOptions = {
           includeDeleted: req.query.includeDeleted === 'true',
           includeResolved: req.query.includeResolved !== 'false', // default true
           threadId: req.query.threadId,
+          authorId: req.query.authorId,
+          mentionsUser: req.query.mentionsUser,
+          unresolvedOnly: req.query.unresolvedOnly === 'true',
+          from: fromVal,
+          to: toVal,
+          search: req.query.search?.trim() || undefined,
+          limit: limitVal,
+          offset: offsetVal,
+          sortBy: req.query.sortBy === 'created_at_desc' ? 'created_at_desc' : 'created_at_asc',
         };
 
-        const comments = listComments(docId, options);
-        return { comments };
+        const result = await listComments(docId, options);
+        return { comments: result.comments, total: result.total };
       }
     );
 
@@ -116,13 +160,13 @@ export function createCommentRoutes(db: Database) {
         const docId = req.params.id;
 
         // Check doc exists
-        const doc = getDoc(docId);
+        const doc = await getDoc(docId);
         if (!doc) {
           return reply.code(404).send({ error: 'Document not found' });
         }
 
         // Check commenter+ access
-        if (!checkDocAccess(req, reply, docId, 'commenter')) return;
+        if (!await checkDocAccess(req, reply, docId, 'commenter')) return;
 
         const body = req.body ?? {};
         const content = (body.content ?? '').toString().trim();
@@ -143,7 +187,7 @@ export function createCommentRoutes(db: Database) {
         };
 
         try {
-          const comment = createComment(params);
+          const comment = await createComment(params);
 
           if (!comment) {
             return reply.code(400).send({ error: 'Failed to create comment. Parent may not exist.' });
@@ -176,7 +220,7 @@ export function createCommentRoutes(db: Database) {
             const mentions = body.mentions ?? [];
             for (const mentionedUserId of mentions) {
               if (mentionedUserId === userId) continue; // Don't notify self
-              const notification = createNotification({
+              const notification = await createNotification({
                 userId: mentionedUserId,
                 workspaceId: doc.workspaceId,
                 type: 'mention',
@@ -200,9 +244,9 @@ export function createCommentRoutes(db: Database) {
 
             // Create notification for thread author if this is a reply
             if (comment.parentId) {
-              const parentComment = getComment(comment.parentId);
+              const parentComment = await getComment(comment.parentId);
               if (parentComment && parentComment.authorId !== userId && !mentions.includes(parentComment.authorId)) {
-                const notification = createNotification({
+                const notification = await createNotification({
                   userId: parentComment.authorId,
                   workspaceId: doc.workspaceId,
                   type: 'comment_reply',
@@ -250,13 +294,13 @@ export function createCommentRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid comment ID' });
         }
 
-        const comment = getComment(commentId);
+        const comment = await getComment(commentId);
         if (!comment) {
           return reply.code(404).send({ error: 'Comment not found' });
         }
 
         // Check viewer+ access on the doc
-        if (!checkDocAccess(req, reply, comment.docId, 'viewer')) return;
+        if (!await checkDocAccess(req, reply, comment.docId, 'viewer')) return;
 
         return comment;
       }
@@ -281,13 +325,13 @@ export function createCommentRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid comment ID' });
         }
 
-        const existing = getComment(commentId);
+        const existing = await getComment(commentId);
         if (!existing) {
           return reply.code(404).send({ error: 'Comment not found' });
         }
 
         // Check commenter+ access on the doc
-        if (!checkDocAccess(req, reply, existing.docId, 'commenter')) return;
+        if (!await checkDocAccess(req, reply, existing.docId, 'commenter')) return;
 
         // Only author can edit their own comment
         if (existing.authorId !== userId) {
@@ -302,14 +346,14 @@ export function createCommentRoutes(db: Database) {
         }
 
         try {
-          const updated = updateComment(commentId, content);
+          const updated = await updateComment(commentId, content);
 
           if (!updated) {
             return reply.code(404).send({ error: 'Comment not found' });
           }
 
           // Log audit event if doc is workspace-scoped
-          const doc = getDoc(existing.docId);
+          const doc = await getDoc(existing.docId);
           if (doc?.workspaceId) {
             logAuditEvent({
               workspaceId: doc.workspaceId,
@@ -357,13 +401,13 @@ export function createCommentRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid comment ID' });
         }
 
-        const existing = getComment(commentId);
+        const existing = await getComment(commentId);
         if (!existing) {
           return reply.code(404).send({ error: 'Comment not found' });
         }
 
         // Get user's role on the doc
-        const role = getEffectiveDocRole(db, existing.docId, req);
+        const role = await getEffectiveDocRole(db, existing.docId, req);
         if (!role) {
           return reply.code(403).send({ error: 'Access denied' });
         }
@@ -378,14 +422,14 @@ export function createCommentRoutes(db: Database) {
         }
 
         try {
-          const deleted = deleteComment(commentId);
+          const deleted = await deleteComment(commentId);
 
           if (!deleted) {
             return reply.code(404).send({ error: 'Comment not found' });
           }
 
           // Log audit event if doc is workspace-scoped
-          const doc = getDoc(existing.docId);
+          const doc = await getDoc(existing.docId);
           if (doc?.workspaceId) {
             logAuditEvent({
               workspaceId: doc.workspaceId,
@@ -432,13 +476,13 @@ export function createCommentRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid comment ID' });
         }
 
-        const comment = getComment(commentId);
+        const comment = await getComment(commentId);
         if (!comment) {
           return reply.code(404).send({ error: 'Comment not found' });
         }
 
         // Check commenter+ access
-        if (!checkDocAccess(req, reply, comment.docId, 'commenter')) return;
+        if (!await checkDocAccess(req, reply, comment.docId, 'commenter')) return;
 
         // Need the threadId
         if (!comment.threadId) {
@@ -446,14 +490,14 @@ export function createCommentRoutes(db: Database) {
         }
 
         try {
-          const resolved = resolveThread(comment.threadId, userId);
+          const resolved = await resolveThread(comment.threadId, userId);
 
           if (!resolved) {
             return reply.code(400).send({ error: 'Failed to resolve thread' });
           }
 
           // Log audit event if doc is workspace-scoped
-          const doc = getDoc(comment.docId);
+          const doc = await getDoc(comment.docId);
           if (doc?.workspaceId) {
             logAuditEvent({
               workspaceId: doc.workspaceId,
@@ -500,13 +544,13 @@ export function createCommentRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid comment ID' });
         }
 
-        const comment = getComment(commentId);
+        const comment = await getComment(commentId);
         if (!comment) {
           return reply.code(404).send({ error: 'Comment not found' });
         }
 
         // Check commenter+ access
-        if (!checkDocAccess(req, reply, comment.docId, 'commenter')) return;
+        if (!await checkDocAccess(req, reply, comment.docId, 'commenter')) return;
 
         // Need the threadId
         if (!comment.threadId) {
@@ -514,14 +558,14 @@ export function createCommentRoutes(db: Database) {
         }
 
         try {
-          const reopened = reopenThread(comment.threadId);
+          const reopened = await reopenThread(comment.threadId);
 
           if (!reopened) {
             return reply.code(400).send({ error: 'Failed to reopen thread' });
           }
 
           // Log audit event if doc is workspace-scoped
-          const doc = getDoc(comment.docId);
+          const doc = await getDoc(comment.docId);
           if (doc?.workspaceId) {
             logAuditEvent({
               workspaceId: doc.workspaceId,
@@ -548,6 +592,73 @@ export function createCommentRoutes(db: Database) {
         } catch (err: any) {
           req.log.error({ err }, 'Failed to reopen thread');
           return reply.code(500).send({ error: 'Failed to reopen thread' });
+        }
+      }
+    );
+
+    // -------------------------------------------
+    // POST /docs/:id/comments/bulk-resolve
+    // Bulk resolve comment threads
+    // Requires: commenter access
+    // -------------------------------------------
+    app.post<{
+      Params: { id: string };
+      Body: { threadIds?: string[] };
+    }>(
+      '/docs/:id/comments/bulk-resolve',
+      async (req, reply) => {
+        const userId = requireUser(req, reply);
+        if (!userId) return;
+
+        const docId = req.params.id;
+
+        // Check doc exists
+        const doc = await getDoc(docId);
+        if (!doc) {
+          return reply.code(404).send({ error: 'Document not found' });
+        }
+
+        // Check commenter+ access
+        if (!await checkDocAccess(req, reply, docId, 'commenter')) return;
+
+        const body = req.body ?? {};
+        const threadIds = Array.isArray(body.threadIds) ? body.threadIds : undefined;
+
+        // Validate threadIds are strings if provided
+        if (threadIds && !threadIds.every((id: unknown) => typeof id === 'string')) {
+          return reply.code(400).send({ error: 'threadIds must be an array of strings' });
+        }
+
+        try {
+          const result = await bulkResolveThreads(docId, userId, threadIds);
+
+          // Log audit event and broadcast if doc is workspace-scoped and there were changes
+          if (doc.workspaceId && result.resolved > 0) {
+            logAuditEvent({
+              workspaceId: doc.workspaceId,
+              actorId: userId,
+              action: 'comment:bulk_resolve',
+              targetType: 'doc',
+              targetId: docId,
+              details: { count: result.resolved, threadIds: result.threadIds },
+            });
+
+            // Broadcast single batch event to workspace
+            wsBroadcast(doc.workspaceId, {
+              type: 'comment',
+              action: 'bulk_resolved',
+              docId,
+              commentId: 0,
+              threadId: null,
+              authorId: userId,
+              ts: Date.now(),
+            });
+          }
+
+          return { resolved: result.resolved, threadIds: result.threadIds };
+        } catch (err: any) {
+          req.log.error({ err }, 'Failed to bulk resolve threads');
+          return reply.code(500).send({ error: 'Failed to bulk resolve threads' });
         }
       }
     );

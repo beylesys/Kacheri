@@ -14,6 +14,10 @@ import { recordProvenance } from '../../provenance';
 import { wsBroadcast } from '../../realtime/globalHub';
 import { AI_RATE_LIMITS } from '../../middleware/rateLimit';
 
+// Doc-level permission guard
+import { checkDocAccess } from '../../workspace/middleware';
+import { db } from '../../db';
+
 interface DetectedField {
   type: 'date' | 'name' | 'amount' | 'custom';
   value: string;
@@ -69,6 +73,9 @@ export const aiDetectFieldsRoutes: FastifyPluginAsync = async (fastify) => {
       if (!text || typeof text !== 'string') {
         return reply.code(400).send({ error: 'Missing text' });
       }
+
+      // Doc-level permission check (editor+ required for AI operations)
+      if (!checkDocAccess(db, req, reply, docId, 'editor')) return;
 
       // Workspace + user (for WS notifications)
       const workspaceId = (req.headers['x-workspace-id'] as string | undefined)?.toString().trim();
@@ -178,13 +185,14 @@ export const aiDetectFieldsRoutes: FastifyPluginAsync = async (fastify) => {
             docId,
             action: 'ai:detectFields',
             actor: 'ai',
+            actorId: userId,
+            workspaceId: workspaceId ?? null,
             details: {
               provider: comp.provider,
               model: comp.model,
               fieldCount: fields.length,
               proofHash,
               proofId: proofRow?.id ?? null,
-              workspaceId: workspaceId ?? null,
             },
           });
         } catch {
@@ -232,7 +240,7 @@ export const aiDetectFieldsRoutes: FastifyPluginAsync = async (fastify) => {
             jobId,
             docId,
             kind: 'detectFields',
-            phase: 'error',
+            phase: 'failed',
             meta: { userId, error: err?.message || 'Unknown error' },
           });
         }

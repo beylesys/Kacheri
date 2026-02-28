@@ -21,24 +21,29 @@ export const AI_RATE_LIMITS = {
 
   // Default for generic AI actions
   generic: { max: 20, timeWindow: '1 hour' },
+
+  // Design Studio AI — moderate (code generation is expensive but less than full doc compose)
+  designAi: { max: 20, timeWindow: '1 hour' },
+
+  // Design Studio image generation — most expensive (external API cost per call)
+  designImage: { max: 10, timeWindow: '1 hour' },
+
+  // JAAL Research Browser — Guide mode AI actions (summarize, compare)
+  jaalGuide: { max: 30, timeWindow: '1 hour' },
 };
 
 /**
  * Extract user identifier from request for rate limiting.
- * Priority: x-user-id > x-dev-user > IP address
+ * Uses authenticated identity from JWT (ignores client-supplied headers).
  */
 function getUserKey(request: FastifyRequest): string {
-  const userId = request.headers['x-user-id'];
-  if (userId && typeof userId === 'string') {
+  // Use authenticated identity from JWT (set by auth middleware)
+  const userId = request.user?.id;
+  if (userId) {
     return `user:${userId}`;
   }
 
-  const devUser = request.headers['x-dev-user'];
-  if (devUser && typeof devUser === 'string') {
-    return `dev:${devUser}`;
-  }
-
-  // Fallback to IP address
+  // Fallback to IP for unauthenticated requests
   return `ip:${request.ip}`;
 }
 

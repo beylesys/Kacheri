@@ -1,7 +1,8 @@
 // src/hooks/useWorkspaceSocket.ts
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type PresenceStatus = 'online' | 'idle' | 'offline';
+export type ConnectionState = 'connected' | 'reconnecting' | 'offline' | 'syncing';
 export type ComposeKind = 'compose' | 'export' | 'rewrite';
 export type ComposePhase = 'started' | 'progress' | 'finished' | 'failed';
 
@@ -10,6 +11,13 @@ export type VersionAction = 'created' | 'renamed' | 'deleted' | 'restored';
 export type SuggestionAction = 'created' | 'updated' | 'accepted' | 'rejected' | 'deleted' | 'accepted_all' | 'rejected_all';
 export type MessageAction = 'created' | 'updated' | 'deleted';
 export type NotificationType = 'mention' | 'comment_reply' | 'doc_shared' | 'suggestion_pending';
+
+export type AttachmentAction = 'uploaded' | 'deleted';
+export type ReviewerAction = 'assigned' | 'status_changed' | 'removed';
+
+// E8 — Canvas collaboration types
+export type CanvasPresenceAction = 'viewing' | 'editing' | 'left';
+export type CanvasLockAction = 'acquired' | 'released' | 'denied';
 
 export type WsEvent =
   | { type: 'presence'; userId: string; displayName?: string; status: PresenceStatus }
@@ -20,8 +28,14 @@ export type WsEvent =
   | { type: 'suggestion'; action: SuggestionAction; docId: string; suggestionId?: number; authorId: string; changeType?: 'insert' | 'delete' | 'replace'; status?: 'pending' | 'accepted' | 'rejected'; count?: number; ts: number }
   | { type: 'message'; action: MessageAction; messageId: number; authorId: string; content?: string; replyToId?: number | null; ts: number }
   | { type: 'notification'; notificationId: number; userId: string; notificationType: NotificationType; title: string; ts: number }
+  | { type: 'attachment'; action: AttachmentAction; docId: string; attachmentId: string; filename: string; uploadedBy: string; ts: number }
+  | { type: 'reviewer'; action: ReviewerAction; docId: string; userId: string; assignedBy?: string; status?: string; ts: number }
   | { type: 'typing'; userId: string; isTyping: boolean; ts: number }
-  | { type: 'system'; level: 'info' | 'warn' | 'error'; message: string };
+  | { type: 'system'; level: 'info' | 'warn' | 'error'; message: string }
+  // E8 — Canvas collaboration events
+  | { type: 'canvas_presence'; canvasId: string; frameId: string | null; userId: string; displayName?: string; action: CanvasPresenceAction; ts: number }
+  | { type: 'canvas_lock'; canvasId: string; frameId: string; userId: string; displayName?: string; action: CanvasLockAction; ts: number }
+  | { type: 'canvas_conversation'; canvasId: string; messageId: string; role: 'user' | 'assistant'; content: string; actionType?: string; authorId: string; ts: number };
 
 export type Member = { userId: string; displayName?: string; status: PresenceStatus };
 export type TypingUser = { userId: string; displayName?: string };
@@ -30,9 +44,12 @@ type Params = { userId?: string; displayName?: string };
 
 const HEARTBEAT_MS = 20_000;
 const TYPING_TIMEOUT_MS = 3000; // Auto-expire typing indicator after 3 seconds
+const OFFLINE_THRESHOLD = 3; // Number of failed reconnect attempts before showing "Offline"
 
 export function useWorkspaceSocket(workspaceId: string, params?: Params) {
   const [connected, setConnected] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('reconnecting');
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [events, setEvents] = useState<WsEvent[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
@@ -40,10 +57,14 @@ export function useWorkspaceSocket(workspaceId: string, params?: Params) {
   const retryRef = useRef<number>(1000);
   const heartbeatRef = useRef<number | null>(null);
   const typingTimeoutsRef = useRef<Map<string, number>>(new Map());
+  const reconnectAttemptsRef = useRef(0);
+  const syncTimerRef = useRef<number | null>(null);
 
-  const url = useMemo(() => {
+  // Base URL without token — token is injected fresh on each connect/reconnect
+  const baseUrl = useMemo(() => {
     const loc = window.location;
     const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+    // userId/displayName sent as fallback for dev mode only (server ignores in production)
     const qs = new URLSearchParams();
     if (params?.userId) qs.set('userId', params.userId);
     if (params?.displayName) qs.set('displayName', params.displayName);
@@ -107,13 +128,31 @@ export function useWorkspaceSocket(workspaceId: string, params?: Params) {
     }
 
     function connect() {
-      const ws = new WebSocket(url);
+      // Inject fresh access token on each connect/reconnect (handles token refresh)
+      let connectUrl = baseUrl;
+      try {
+        const token = typeof localStorage !== 'undefined' && localStorage.getItem('accessToken');
+        if (token) {
+          const sep = connectUrl.includes('?') ? '&' : '?';
+          connectUrl = `${connectUrl}${sep}token=${encodeURIComponent(token)}`;
+        }
+      } catch { /* ignore localStorage errors */ }
+      const ws = new WebSocket(connectUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         if (cancelled) return;
         setConnected(true);
         retryRef.current = 1000;
+        reconnectAttemptsRef.current = 0;
+        setReconnectAttempts(0);
+        // Brief syncing state before showing connected
+        setConnectionState('syncing');
+        if (syncTimerRef.current != null) window.clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = window.setTimeout(() => {
+          if (!cancelled) setConnectionState('connected');
+          syncTimerRef.current = null;
+        }, 1500) as unknown as number;
         // Initial presence so others see you.
         sendPresence('online');
         startHeartbeat();
@@ -244,6 +283,30 @@ export function useWorkspaceSocket(workspaceId: string, params?: Params) {
               });
               break;
             }
+            case 'attachment': {
+              pushEvent({
+                type: 'attachment',
+                action: (msg.action as AttachmentAction) ?? 'uploaded',
+                docId: String(msg.docId ?? ''),
+                attachmentId: String(msg.attachmentId ?? ''),
+                filename: String(msg.filename ?? ''),
+                uploadedBy: String(msg.uploadedBy ?? ''),
+                ts: Number(msg.ts ?? Date.now()),
+              });
+              break;
+            }
+            case 'reviewer': {
+              pushEvent({
+                type: 'reviewer',
+                action: (msg.action as ReviewerAction) ?? 'assigned',
+                docId: String(msg.docId ?? ''),
+                userId: String(msg.userId ?? ''),
+                assignedBy: msg.assignedBy ? String(msg.assignedBy) : undefined,
+                status: msg.status ? String(msg.status) : undefined,
+                ts: Number(msg.ts ?? Date.now()),
+              });
+              break;
+            }
             case 'typing': {
               const userId = String(msg.userId ?? '');
               const isTyping = Boolean(msg.isTyping);
@@ -254,6 +317,44 @@ export function useWorkspaceSocket(workspaceId: string, params?: Params) {
                 type: 'typing',
                 userId,
                 isTyping,
+                ts: Number(msg.ts ?? Date.now()),
+              });
+              break;
+            }
+            // E8 — Canvas collaboration events
+            case 'canvas_presence': {
+              pushEvent({
+                type: 'canvas_presence',
+                canvasId: String(msg.canvasId ?? ''),
+                frameId: msg.frameId != null ? String(msg.frameId) : null,
+                userId: String(msg.userId ?? ''),
+                displayName: msg.displayName ? String(msg.displayName) : undefined,
+                action: (msg.action as CanvasPresenceAction) ?? 'viewing',
+                ts: Number(msg.ts ?? Date.now()),
+              });
+              break;
+            }
+            case 'canvas_lock': {
+              pushEvent({
+                type: 'canvas_lock',
+                canvasId: String(msg.canvasId ?? ''),
+                frameId: String(msg.frameId ?? ''),
+                userId: String(msg.userId ?? ''),
+                displayName: msg.displayName ? String(msg.displayName) : undefined,
+                action: (msg.action as CanvasLockAction) ?? 'acquired',
+                ts: Number(msg.ts ?? Date.now()),
+              });
+              break;
+            }
+            case 'canvas_conversation': {
+              pushEvent({
+                type: 'canvas_conversation',
+                canvasId: String(msg.canvasId ?? ''),
+                messageId: String(msg.messageId ?? ''),
+                role: (msg.role as 'user' | 'assistant') ?? 'user',
+                content: String(msg.content ?? ''),
+                actionType: msg.actionType ? String(msg.actionType) : undefined,
+                authorId: String(msg.authorId ?? ''),
                 ts: Number(msg.ts ?? Date.now()),
               });
               break;
@@ -273,6 +374,14 @@ export function useWorkspaceSocket(workspaceId: string, params?: Params) {
         if (cancelled) return;
         setConnected(false);
         stopHeartbeat();
+        if (syncTimerRef.current != null) {
+          window.clearTimeout(syncTimerRef.current);
+          syncTimerRef.current = null;
+        }
+        reconnectAttemptsRef.current += 1;
+        const attempts = reconnectAttemptsRef.current;
+        setReconnectAttempts(attempts);
+        setConnectionState(attempts >= OFFLINE_THRESHOLD ? 'offline' : 'reconnecting');
         setTimeout(connect, retryRef.current);
         retryRef.current = Math.min(10_000, Math.round(retryRef.current * 1.5));
       };
@@ -289,6 +398,10 @@ export function useWorkspaceSocket(workspaceId: string, params?: Params) {
         window.clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
       }
+      if (syncTimerRef.current != null) {
+        window.clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+      }
       // Clear all typing timeouts
       for (const timeoutId of typingTimeoutsRef.current.values()) {
         window.clearTimeout(timeoutId);
@@ -298,7 +411,7 @@ export function useWorkspaceSocket(workspaceId: string, params?: Params) {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [url]);
+  }, [baseUrl]);
 
   function sendPresence(status: PresenceStatus) {
     try {
@@ -334,5 +447,14 @@ export function useWorkspaceSocket(workspaceId: string, params?: Params) {
     // Client side emit is intentionally no-op except presence/chat.
   }
 
-  return { connected, events, members, typingUsers, sendPresence, setPresence, sendChat, sendTyping, emit };
+  /** E8 — Send arbitrary client event (canvas collaboration messages) */
+  const sendRaw = useCallback((msg: Record<string, unknown>) => {
+    try {
+      wsRef.current?.send(JSON.stringify(msg));
+    } catch {
+      /* no-op */
+    }
+  }, []);
+
+  return { connected, connectionState, reconnectAttempts, events, members, typingUsers, sendPresence, setPresence, sendChat, sendTyping, emit, sendRaw };
 }

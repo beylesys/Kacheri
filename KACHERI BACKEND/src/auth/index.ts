@@ -81,3 +81,22 @@ export {
 
 // Routes
 export { createAuthRoutes } from './routes';
+
+// Personal Access Tokens
+export {
+  createPatStore,
+  isPATToken,
+  generatePATToken,
+  isValidScope,
+  validateScopes,
+  PAT_PREFIX,
+  MAX_PATS_PER_USER,
+  VALID_SCOPES,
+} from './pat';
+export type {
+  PersonalAccessToken,
+  PatScope,
+  CreatePatInput,
+  CreatePatResult,
+  PatStore,
+} from './pat';

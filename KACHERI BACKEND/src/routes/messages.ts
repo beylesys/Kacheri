@@ -2,7 +2,6 @@
 // REST endpoints for workspace messages (persistent chat).
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from 'better-sqlite3';
 import {
   createMessage,
   getMessage,
@@ -20,13 +19,7 @@ import { wsBroadcast, broadcastToUser } from '../realtime/globalHub';
 import { createNotification } from '../store/notifications';
 import { db as appDb } from '../db';
 
-// Prepared statements for message mentions
-const insertMentionStmt = appDb.prepare(`
-  INSERT INTO message_mentions (message_id, user_id, created_at)
-  VALUES (?, ?, ?)
-`);
-
-export function createMessageRoutes(db: Database) {
+export function createMessageRoutes(db: import('../db/types').DbAdapter) {
   const workspaceStore = createWorkspaceStore(db);
 
   return async function messageRoutes(app: FastifyInstance) {
@@ -41,13 +34,13 @@ export function createMessageRoutes(db: Database) {
     }
 
     // Helper to check workspace membership
-    function requireWorkspaceMember(
+    async function requireWorkspaceMember(
       req: FastifyRequest,
       reply: FastifyReply,
       workspaceId: string,
       userId: string
-    ): boolean {
-      const role = workspaceStore.getUserRole(workspaceId, userId);
+    ): Promise<boolean> {
+      const role = await workspaceStore.getUserRole(workspaceId, userId);
       if (!role) {
         reply.code(403).send({ error: 'Not a member of this workspace' });
         return false;
@@ -77,13 +70,13 @@ export function createMessageRoutes(db: Database) {
         const workspaceId = req.params.workspaceId;
 
         // Check workspace exists
-        const workspace = workspaceStore.getById(workspaceId);
+        const workspace = await workspaceStore.getById(workspaceId);
         if (!workspace) {
           return reply.code(404).send({ error: 'Workspace not found' });
         }
 
         // Check membership
-        if (!requireWorkspaceMember(req, reply, workspaceId, userId)) return;
+        if (!await requireWorkspaceMember(req, reply, workspaceId, userId)) return;
 
         const options: ListMessagesOptions = {
           limit: req.query.limit ? parseInt(req.query.limit, 10) : undefined,
@@ -91,7 +84,7 @@ export function createMessageRoutes(db: Database) {
           after: req.query.after ? parseInt(req.query.after, 10) : undefined,
         };
 
-        const { messages, hasMore } = listMessages(workspaceId, options);
+        const { messages, hasMore } = await listMessages(workspaceId, options);
         return { messages, hasMore };
       }
     );
@@ -117,13 +110,13 @@ export function createMessageRoutes(db: Database) {
         const workspaceId = req.params.workspaceId;
 
         // Check workspace exists
-        const workspace = workspaceStore.getById(workspaceId);
+        const workspace = await workspaceStore.getById(workspaceId);
         if (!workspace) {
           return reply.code(404).send({ error: 'Workspace not found' });
         }
 
         // Check membership
-        if (!requireWorkspaceMember(req, reply, workspaceId, userId)) return;
+        if (!await requireWorkspaceMember(req, reply, workspaceId, userId)) return;
 
         const body = req.body ?? {};
         const content = (body.content ?? '').toString().trim();
@@ -150,7 +143,7 @@ export function createMessageRoutes(db: Database) {
         };
 
         try {
-          const message = createMessage(params);
+          const message = await createMessage(params);
 
           if (!message) {
             return reply.code(400).send({ error: 'Failed to create message. Reply target may not exist.' });
@@ -163,18 +156,21 @@ export function createMessageRoutes(db: Database) {
             if (mentionedUserId === userId) continue;
 
             // Verify mentioned user is a workspace member
-            const mentionedRole = workspaceStore.getUserRole(workspaceId, mentionedUserId);
+            const mentionedRole = await workspaceStore.getUserRole(workspaceId, mentionedUserId);
             if (!mentionedRole) continue;
 
             // Insert mention record
             try {
-              insertMentionStmt.run(message.id, mentionedUserId, now);
+              await appDb.run(
+                `INSERT INTO message_mentions (message_id, user_id, created_at) VALUES (?, ?, ?)`,
+                [message.id, mentionedUserId, now]
+              );
             } catch (err) {
               req.log.warn({ err, messageId: message.id, mentionedUserId }, 'Failed to insert mention record');
             }
 
             // Create notification
-            const notification = createNotification({
+            const notification = await createNotification({
               userId: mentionedUserId,
               workspaceId,
               type: 'mention',
@@ -246,7 +242,7 @@ export function createMessageRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid message ID' });
         }
 
-        const existing = getMessage(messageId);
+        const existing = await getMessage(messageId);
         if (!existing) {
           return reply.code(404).send({ error: 'Message not found' });
         }
@@ -257,7 +253,7 @@ export function createMessageRoutes(db: Database) {
         }
 
         // Verify user is still a workspace member
-        if (!requireWorkspaceMember(req, reply, existing.workspaceId, userId)) return;
+        if (!await requireWorkspaceMember(req, reply, existing.workspaceId, userId)) return;
 
         const body = req.body ?? {};
         const content = (body.content ?? '').toString().trim();
@@ -271,7 +267,7 @@ export function createMessageRoutes(db: Database) {
         }
 
         try {
-          const updated = updateMessage(messageId, content, userId);
+          const updated = await updateMessage(messageId, content, userId);
 
           if (!updated) {
             return reply.code(404).send({ error: 'Message not found' });
@@ -322,7 +318,7 @@ export function createMessageRoutes(db: Database) {
           return reply.code(400).send({ error: 'Invalid message ID' });
         }
 
-        const existing = getMessage(messageId);
+        const existing = await getMessage(messageId);
         if (!existing) {
           return reply.code(404).send({ error: 'Message not found' });
         }
@@ -333,7 +329,7 @@ export function createMessageRoutes(db: Database) {
         }
 
         try {
-          const deleted = deleteMessage(messageId, userId);
+          const deleted = await deleteMessage(messageId, userId);
 
           if (!deleted) {
             return reply.code(404).send({ error: 'Message not found' });

@@ -12,7 +12,7 @@ type Props = {
   refreshKey?: number;
 };
 
-export function BacklinksPanel({
+function BacklinksPanelInner({
   docId,
   open,
   onClose,
@@ -25,7 +25,6 @@ export function BacklinksPanel({
       className={`backlinks-panel ${open ? 'open' : ''}`}
       role="complementary"
       aria-label="Backlinks"
-      aria-expanded={open}
     >
       <header className="backlinks-header">
         <h3 className="backlinks-title">Backlinks ({count})</h3>
@@ -79,4 +78,5 @@ export function BacklinksPanel({
   );
 }
 
+export const BacklinksPanel = React.memo(BacklinksPanelInner);
 export default BacklinksPanel;

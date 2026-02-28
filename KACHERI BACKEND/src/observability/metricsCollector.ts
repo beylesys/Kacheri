@@ -71,23 +71,21 @@ export function startGaugeUpdates(intervalMs: number = 60000): void {
   // Stop existing interval if any
   stopGaugeUpdates();
 
-  const updateGauges = () => {
+  const updateGauges = async () => {
     try {
       // Get document count
-      const docCount = (
-        db
-          .prepare("SELECT COUNT(*) as count FROM docs WHERE deleted_at IS NULL")
-          .get() as { count: number }
-      ).count;
+      const docRow = await db.queryOne<{ count: number }>(
+        "SELECT COUNT(*) as count FROM docs WHERE deleted_at IS NULL"
+      );
+      const docCount = docRow?.count ?? 0;
 
       // Get proof count
       let proofCount = 0;
       try {
-        proofCount = (
-          db.prepare("SELECT COUNT(*) as count FROM proofs").get() as {
-            count: number;
-          }
-        ).count;
+        const proofRow = await db.queryOne<{ count: number }>(
+          "SELECT COUNT(*) as count FROM proofs"
+        );
+        proofCount = proofRow?.count ?? 0;
       } catch {
         // Table might not exist
       }
@@ -96,9 +94,9 @@ export function startGaugeUpdates(intervalMs: number = 60000): void {
 
       // Get job counts by status
       try {
-        const jobRows = db
-          .prepare("SELECT status, COUNT(*) as count FROM jobs GROUP BY status")
-          .all() as Array<{ status: string; count: number }>;
+        const jobRows = await db.queryAll<{ status: string; count: number }>(
+          "SELECT status, COUNT(*) as count FROM jobs GROUP BY status"
+        );
 
         const jobCounts: Record<string, number> = {
           pending: 0,

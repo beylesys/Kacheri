@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 type HeadingItem = {
   id: string;
@@ -50,6 +51,9 @@ export default function FindReplaceDialog({
   onJumpToHeading,
   onClose,
 }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
   // Escape key to close
   useEffect(() => {
     if (!open) return;
@@ -82,6 +86,10 @@ export default function FindReplaceDialog({
   return (
     <div
       onClick={handleBackdropClick}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="find-replace-title"
+      ref={dialogRef}
       style={{
         position: "fixed",
         inset: 0,
@@ -117,6 +125,7 @@ export default function FindReplaceDialog({
         >
           <div>
             <div
+              id="find-replace-title"
               style={{
                 fontSize: 14,
                 fontWeight: 600,

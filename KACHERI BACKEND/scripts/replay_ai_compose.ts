@@ -13,11 +13,13 @@
 //
 // Notes:
 // - We read compose entries from the proofs table (kind='ai:compose') with a fallback for legacy 'type' values.
+// - Proof file resolution uses storage client first, then filesystem fallback.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { db, repoPath } from '../src/db';
+import { readArtifactBuffer } from '../src/storage';
 
 type Flags = { doc?: string; limit: number; rerun: boolean; verbose: boolean; out?: string };
 function parseFlags(argv: string[]): Flags {
@@ -34,13 +36,6 @@ function parseFlags(argv: string[]): Flags {
 
 function sha256HexUTF8(s: string) {
   return crypto.createHash('sha256').update(s, 'utf8').digest('hex');
-}
-
-function readJsonFile(p: string): any | null {
-  try {
-    const s = fs.readFileSync(p, 'utf8');
-    return JSON.parse(s);
-  } catch { return null; }
 }
 
 // Best-effort rerun (only used with --rerun). Returns text or null if not possible.
@@ -90,16 +85,22 @@ async function main() {
   let pass = 0, drift = 0, miss = 0;
 
   for (const r of rows) {
-    // If payload is missing but we have meta.proofFile, load it from disk (recordProof writes this).
+    // If payload is missing but we have meta.storageKey or meta.proofFile, load the proof JSON.
     let payloadStr = String(r.payload || '');
     if (!payloadStr && r.meta) {
       try {
         const meta = JSON.parse(r.meta);
+        const storageKey = typeof meta?.storageKey === 'string' ? meta.storageKey : null;
         const proofFile = typeof meta?.proofFile === 'string' ? meta.proofFile : null;
-        if (proofFile) {
-          const abs = path.isAbsolute(proofFile) ? proofFile : repoPath(proofFile);
-          const loaded = readJsonFile(abs);
-          if (loaded) payloadStr = JSON.stringify(loaded);
+        const absProofFile = proofFile
+          ? (path.isAbsolute(proofFile) ? proofFile : repoPath(proofFile))
+          : null;
+
+        // Storage-first read with filesystem fallback
+        const buf = await readArtifactBuffer(storageKey, absProofFile);
+        if (buf) {
+          const loaded = JSON.parse(buf.toString('utf8'));
+          payloadStr = JSON.stringify(loaded);
         }
       } catch { /* ignore */ }
     }

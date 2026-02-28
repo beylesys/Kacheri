@@ -3,12 +3,20 @@
  * Standalone Yjs WebSocket sync server with LevelDB persistence.
  *
  * Documents are persisted to disk so they survive server restarts.
+ *
+ * Authentication (Slice 4):
+ * - JWT token required as ?token= query param
+ * - User identity extracted from JWT payload
+ * - Document access verified against SQLite DB (read-only)
+ * - Dev mode bypass when DEV_BYPASS_AUTH=true
  */
 import 'dotenv/config';
 import * as http from 'node:http';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as url from 'node:url';
 import * as Y from 'yjs';
+import jwt from 'jsonwebtoken';
 import pino from 'pino';
 
 // Standalone logger (separate process from main server)
@@ -23,6 +31,7 @@ const { WebSocketServer } = require('ws') as { WebSocketServer: any };
 const { LeveldbPersistence } = require('y-leveldb') as {
   LeveldbPersistence: new (dir: string) => LeveldbPersistenceType;
 };
+const BetterSqlite3 = require('better-sqlite3') as typeof import('better-sqlite3');
 
 interface LeveldbPersistenceType {
   getYDoc(docName: string): Promise<Y.Doc>;
@@ -55,6 +64,166 @@ fs.mkdirSync(PERSISTENCE_DIR, { recursive: true });
 // Initialize LevelDB persistence
 const persistence = new LeveldbPersistence(PERSISTENCE_DIR);
 log.info({ persistenceDir: PERSISTENCE_DIR }, 'Persistence enabled');
+
+// ============================================
+// Authentication (Slice 4 — WebSocket Auth)
+// ============================================
+
+const DEV_BYPASS = (process.env.DEV_BYPASS_AUTH ?? 'true').toLowerCase() === 'true'
+  && (process.env.NODE_ENV ?? 'development') !== 'production';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-do-not-use-in-production';
+
+// Read-only SQLite connection for doc access checks
+const AUTH_DB_PATH = process.env.KACHERI_DB_PATH || path.resolve(repoRoot(), 'data/db/kacheri.db');
+let authDb: InstanceType<typeof BetterSqlite3> | null = null;
+
+function getAuthDb(): InstanceType<typeof BetterSqlite3> | null {
+  if (authDb) return authDb;
+  try {
+    if (!fs.existsSync(AUTH_DB_PATH)) {
+      log.warn({ dbPath: AUTH_DB_PATH }, 'Auth DB not found — doc access checks disabled');
+      return null;
+    }
+    authDb = new BetterSqlite3(AUTH_DB_PATH, { readonly: true });
+    log.info({ dbPath: AUTH_DB_PATH }, 'Auth DB opened (read-only)');
+    return authDb;
+  } catch (err) {
+    log.warn({ err, dbPath: AUTH_DB_PATH }, 'Failed to open auth DB — doc access checks disabled');
+    return null;
+  }
+}
+
+interface JwtPayload {
+  sub: string;
+  email?: string;
+  name?: string;
+  type: string;
+  iat: number;
+  exp: number;
+}
+
+/**
+ * Verify a JWT token. Returns the payload or null.
+ */
+function verifyWsToken(token: string): JwtPayload | null {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    if (payload && payload.type === 'access' && payload.sub) {
+      return payload;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if a user has access to a document.
+ * Mirrors the getEffectiveDocRole logic from src/store/docPermissions.ts:
+ * 1. Explicit doc_permissions entry
+ * 2. Workspace membership (user is in the doc's workspace)
+ * 3. Doc creator (implicit owner)
+ *
+ * The docName from Yjs uses "doc-<docId>" format. We strip the "doc-" prefix.
+ */
+function hasDocAccess(userId: string, docName: string): boolean {
+  const db = getAuthDb();
+  if (!db) {
+    // DB unavailable — in dev mode allow, in prod deny
+    return DEV_BYPASS;
+  }
+
+  // Strip "doc-" prefix used by the Yjs room naming convention
+  const docId = docName.startsWith('doc-') ? docName.slice(4) : docName;
+
+  try {
+    // 1. Explicit doc permission
+    const explicitPerm = db.prepare(
+      'SELECT role FROM doc_permissions WHERE doc_id = ? AND user_id = ?'
+    ).get(docId, userId) as { role: string } | undefined;
+    if (explicitPerm) return true;
+
+    // 2. Workspace membership (user is a member of the doc's workspace)
+    const workspacePerm = db.prepare(`
+      SELECT wm.role FROM docs d
+      JOIN workspace_members wm ON wm.workspace_id = d.workspace_id AND wm.user_id = ?
+      WHERE d.id = ? AND d.deleted_at IS NULL
+    `).get(userId, docId) as { role: string } | undefined;
+    if (workspacePerm) return true;
+
+    // 3. Doc creator (implicit owner)
+    const creator = db.prepare(
+      'SELECT 1 FROM docs WHERE id = ? AND created_by = ? AND deleted_at IS NULL'
+    ).get(docId, userId) as { '1': number } | undefined;
+    if (creator) return true;
+
+    return false;
+  } catch (err) {
+    log.error({ err, docId, userId }, 'Doc access check failed');
+    // Fail closed in production, open in dev
+    return DEV_BYPASS;
+  }
+}
+
+/**
+ * Authenticate a WebSocket upgrade request.
+ * Extracts token from query params, verifies JWT, and checks doc access.
+ * Returns userId on success, or null (socket destroyed) on failure.
+ */
+function authenticateUpgrade(
+  reqUrl: string,
+  socket: import('stream').Duplex,
+): { userId: string; docName: string } | null {
+  const parsed = url.parse(reqUrl, true);
+  const token = typeof parsed.query.token === 'string' ? parsed.query.token : undefined;
+
+  // Parse docName from URL path (strip /yjs/ prefix)
+  const docName =
+    (parsed.pathname || '')
+      .slice(1)
+      .replace(/^yjs\/?/, '')
+      || 'default';
+
+  // Attempt JWT auth if token provided
+  if (token) {
+    const payload = verifyWsToken(token);
+    if (payload) {
+      const userId = payload.sub;
+
+      // Verify doc access
+      if (!hasDocAccess(userId, docName)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return null;
+      }
+
+      return { userId, docName };
+    }
+
+    // Token provided but invalid
+    if (!DEV_BYPASS) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return null;
+    }
+    // In dev mode, fall through to dev bypass
+  }
+
+  // Dev mode bypass: allow all connections
+  if (DEV_BYPASS) {
+    return { userId: 'user_anonymous', docName };
+  }
+
+  // No token, not dev mode — reject
+  socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+  socket.destroy();
+  return null;
+}
+
+// ============================================
+// Yjs document management
+// ============================================
 
 /**
  * Get or create a Y.Doc for the given document name.
@@ -117,19 +286,19 @@ const wss = new WebSocketServer({ noServer: true });
 const docConnections = new Map<string, Set<any>>();
 
 server.on('upgrade', (req, socket, head) => {
-  const url = req.url || '';
+  const reqUrl = req.url || '';
 
-  if (!url.startsWith('/yjs')) {
+  if (!reqUrl.startsWith('/yjs')) {
     try { socket.destroy(); } catch { /* ignore */ }
     return;
   }
 
+  // Authenticate before upgrading (Slice 4)
+  const auth = authenticateUpgrade(reqUrl, socket);
+  if (!auth) return; // socket already destroyed
+
   wss.handleUpgrade(req, socket as any, head, async (ws: any) => {
-    const docName =
-      url
-        .slice(1)
-        .replace(/^yjs\/?/, '')
-        .split('?')[0] || 'default';
+    const { docName } = auth;
 
     try {
       const doc = await getDoc(docName);
@@ -255,6 +424,9 @@ async function shutdown() {
   // Close servers
   try { wss.close(); } catch { /* ignore */ }
   try { server.close(); } catch { /* ignore */ }
+
+  // Close auth DB
+  try { authDb?.close(); } catch { /* ignore */ }
 
   // Close persistence
   try {

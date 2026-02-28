@@ -1,5 +1,6 @@
 // frontend/src/components/PromptDialog.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import "./promptDialog.css";
 
 export type PromptDialogMode = "prompt" | "confirm";
@@ -50,6 +51,9 @@ export const PromptDialog: React.FC<PromptDialogProps> = ({
   onConfirm,
   onCancel,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
   const [value, setValue] = useState(initialValue ?? "");
 
   // Reset value when the dialog is (re)opened or initialValue changes
@@ -103,6 +107,7 @@ export const PromptDialog: React.FC<PromptDialogProps> = ({
 
   return (
     <div
+      ref={dialogRef}
       className="bk-modal-backdrop"
       onMouseDown={backdropClick}
       onKeyDown={handleKeyDown}

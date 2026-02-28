@@ -1,13 +1,19 @@
 // KACHERI BACKEND/src/migrations/runner.ts
 // P4.4: Database migration runner with up/down support
+// S16: Added AsyncMigrationRunner for PostgreSQL + SQL dialect hint translation.
 //
 // Manages versioned SQL migrations stored in the migrations/ directory.
 // Each migration file contains up and down SQL separated by "-- DOWN" marker.
+//
+// For SQLite (local mode): use the synchronous MigrationRunner with a raw Database.
+// For PostgreSQL (cloud mode): use the AsyncMigrationRunner with a DbAdapter.
+// PostgreSQL SQL dialect hints are applied automatically — see applyDialectHints().
 
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { createLogger } from "../observability";
+import type { DbAdapter } from "../db/types";
 
 const log = createLogger("migrations");
 
@@ -291,4 +297,184 @@ export class MigrationRunner {
 export function createMigrationRunner(db: Database.Database, migrationsDir?: string): MigrationRunner {
   const defaultDir = path.resolve(process.cwd(), "migrations");
   return new MigrationRunner(db, migrationsDir ?? defaultDir);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * S16: PostgreSQL SQL Dialect Hints
+ * Translates SQLite-specific DDL to PostgreSQL equivalents.
+ * Called by AsyncMigrationRunner before executing each migration.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Apply SQLite → PostgreSQL dialect translation hints to a migration SQL string.
+ *
+ * Rules applied (in order):
+ * 1. Skip PRAGMA statements entirely
+ * 2. Skip CREATE VIRTUAL TABLE ... USING fts5 (PostgreSQL uses tsvector — handled separately)
+ * 3. Replace INTEGER PRIMARY KEY AUTOINCREMENT → BIGSERIAL PRIMARY KEY
+ * 4. Replace datetime('now') → NOW()
+ * 5. Replace DEFAULT (CURRENT_TIMESTAMP) → DEFAULT CURRENT_TIMESTAMP (standard SQL)
+ */
+export function applyDialectHints(sql: string): string {
+  const lines = sql.split('\n');
+  const outputLines: string[] = [];
+  let inFts5Block = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Skip PRAGMA statements
+    if (/^\s*PRAGMA\s+/i.test(trimmed)) {
+      outputLines.push(`-- [pg-skip] ${line}`);
+      continue;
+    }
+
+    // Skip FTS5 virtual table creation (multi-line blocks)
+    if (/CREATE\s+VIRTUAL\s+TABLE\s+/i.test(trimmed) && /USING\s+fts5/i.test(trimmed)) {
+      outputLines.push(`-- [pg-skip-fts5] ${line}`);
+      inFts5Block = !trimmed.endsWith(';');
+      continue;
+    }
+    if (inFts5Block) {
+      outputLines.push(`-- [pg-skip-fts5] ${line}`);
+      if (trimmed.endsWith(');') || trimmed.endsWith(';')) {
+        inFts5Block = false;
+      }
+      continue;
+    }
+
+    let out = line;
+
+    // INTEGER PRIMARY KEY AUTOINCREMENT → BIGSERIAL PRIMARY KEY
+    out = out.replace(
+      /\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b/gi,
+      'BIGSERIAL PRIMARY KEY'
+    );
+
+    // datetime('now') → NOW()
+    out = out.replace(/\bdatetime\s*\(\s*'now'\s*\)/gi, 'NOW()');
+
+    // DEFAULT (CURRENT_TIMESTAMP) → DEFAULT CURRENT_TIMESTAMP
+    out = out.replace(/DEFAULT\s+\(CURRENT_TIMESTAMP\)/gi, 'DEFAULT CURRENT_TIMESTAMP');
+
+    outputLines.push(out);
+  }
+
+  return outputLines.join('\n');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * S16: AsyncMigrationRunner — uses DbAdapter for PostgreSQL migrations
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+const asyncLog = createLogger("migrations-async");
+
+export class AsyncMigrationRunner {
+  private adapter: DbAdapter;
+  private migrationsDir: string;
+
+  constructor(adapter: DbAdapter, migrationsDir?: string) {
+    this.adapter = adapter;
+    this.migrationsDir = migrationsDir ?? path.resolve(process.cwd(), "migrations");
+  }
+
+  /** Ensure the schema_migrations table exists (PostgreSQL DDL) */
+  async ensureMigrationTable(): Promise<void> {
+    const ddl = this.adapter.dbType === 'postgresql'
+      ? `CREATE TABLE IF NOT EXISTS schema_migrations (
+           id BIGSERIAL PRIMARY KEY,
+           name TEXT NOT NULL UNIQUE,
+           applied_at BIGINT NOT NULL
+         );`
+      : `CREATE TABLE IF NOT EXISTS schema_migrations (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           name TEXT NOT NULL UNIQUE,
+           applied_at INTEGER NOT NULL
+         );`;
+    await this.adapter.exec(ddl);
+  }
+
+  /** Parse a migration file into up and down SQL */
+  private parseMigrationFile(filePath: string): { up: string; down: string } {
+    const content = fs.readFileSync(filePath, "utf-8");
+    const marker = "-- DOWN";
+    const markerIndex = content.indexOf(marker);
+    if (markerIndex === -1) {
+      return { up: content.trim(), down: "" };
+    }
+    return {
+      up: content.slice(0, markerIndex).trim(),
+      down: content.slice(markerIndex + marker.length).trim(),
+    };
+  }
+
+  /** Extract version and name from migration filename */
+  private parseFilename(filename: string): { version: string; name: string } | null {
+    const match = filename.match(/^(\d+)_(.+)\.sql$/);
+    if (!match) return null;
+    return { version: match[1], name: match[2] };
+  }
+
+  /** Get all migration files */
+  getAllMigrations(): Migration[] {
+    if (!fs.existsSync(this.migrationsDir)) return [];
+    const files = fs.readdirSync(this.migrationsDir)
+      .filter(f => f.endsWith(".sql"))
+      .sort();
+    const migrations: Migration[] = [];
+    for (const file of files) {
+      const parsed = this.parseFilename(file);
+      if (!parsed) continue;
+      const filePath = path.join(this.migrationsDir, file);
+      const { up, down } = this.parseMigrationFile(filePath);
+      migrations.push({ version: parsed.version, name: parsed.name, up, down });
+    }
+    return migrations;
+  }
+
+  /** Get names of already-applied migrations */
+  async getAppliedNames(): Promise<Set<string>> {
+    await this.ensureMigrationTable();
+    const rows = await this.adapter.queryAll<{ name: string }>(
+      `SELECT name FROM schema_migrations ORDER BY id ASC`
+    );
+    return new Set(rows.map(r => r.name));
+  }
+
+  /** Run all pending migrations */
+  async runAll(): Promise<{ applied: string[]; skipped: string[] }> {
+    await this.ensureMigrationTable();
+    const appliedNames = await this.getAppliedNames();
+    const all = this.getAllMigrations();
+    const pending = all.filter(m => !appliedNames.has(`${m.version}_${m.name}`));
+
+    const applied: string[] = [];
+    const skipped: string[] = [];
+
+    for (const migration of pending) {
+      const fullName = `${migration.version}_${migration.name}`;
+      try {
+        // Apply dialect translation for PostgreSQL
+        const sql = this.adapter.dbType === 'postgresql'
+          ? applyDialectHints(migration.up)
+          : migration.up;
+
+        await this.adapter.transaction(async (tx) => {
+          await tx.exec(sql);
+          await tx.run(
+            `INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
+            [fullName, Date.now()]
+          );
+        });
+        applied.push(fullName);
+        asyncLog.info({ migration: fullName }, 'Applied migration');
+      } catch (err) {
+        asyncLog.error({ err, migration: fullName }, 'Failed to apply migration');
+        skipped.push(fullName);
+        break; // Stop on first failure
+      }
+    }
+
+    return { applied, skipped };
+  }
 }

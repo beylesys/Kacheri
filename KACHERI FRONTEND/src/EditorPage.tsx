@@ -1,9 +1,10 @@
-﻿import {
+﻿import React, {
   useEffect,
   useMemo,
   useState,
   useRef,
   useCallback,
+  Suspense,
 } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import CommandPalette, {
@@ -13,20 +14,30 @@ import type { Command } from "./components/CommandPalette";
 import DiffModal from "./components/DiffModal";
 import PDFImportModal from "./components/PDFImportModal";
 import { DocsAPI, AiAPI, EvidenceAPI } from "./api";
-import Editor, { type EditorApi } from "./Editor";
+import Editor, { type EditorApi, type NumberingStyle, type ColumnGap, type ColumnRule } from "./Editor";
 import ImageInsertDialog from "./components/ImageInsertDialog";
 import DocPickerModal from "./components/DocPickerModal";
-import ProofsPanel from "./ProofsPanel";
-import { CommentsPanel } from "./components/CommentsPanel";
-import { VersionsPanel } from "./components/VersionsPanel";
-import { SuggestionsPanel } from "./components/SuggestionsPanel";
-import BacklinksPanel from "./components/BacklinksPanel";
 import type { Suggestion } from "./api/suggestions";
+
+// ── Lazy-loaded drawer panels (code-split for initial load perf) ──
+const ProofsPanel = React.lazy(() => import("./ProofsPanel"));
+const CommentsPanel = React.lazy(() =>
+  import("./components/CommentsPanel").then(m => ({ default: m.CommentsPanel }))
+);
+const VersionsPanel = React.lazy(() =>
+  import("./components/VersionsPanel").then(m => ({ default: m.VersionsPanel }))
+);
+const SuggestionsPanel = React.lazy(() =>
+  import("./components/SuggestionsPanel").then(m => ({ default: m.SuggestionsPanel }))
+);
+const BacklinksPanel = React.lazy(() => import("./components/BacklinksPanel"));
 import PromptDialog from "./components/PromptDialog";
 import {
   useWorkspaceSocket,
   type WsEvent,
+  type ConnectionState,
 } from "./hooks/useWorkspaceSocket";
+import { sanitizeHtml } from "./utils/sanitize";
 import FindReplaceDialog from "./components/FindReplaceDialog";
 import ShareDialog from "./components/ShareDialog";
 import PageSetupDialog, { type LayoutSettings } from "./components/PageSetupDialog";
@@ -38,11 +49,40 @@ import { useTTS } from "./hooks/useTTS";
 import { DictatePanel } from "./components/DictatePanel";
 import { useSTT } from "./hooks/useSTT";
 import { TranslateModal } from "./components/TranslateModal";
+import OriginalSourceModal from "./components/OriginalSourceModal";
+import { ComplianceBadge } from "./components/compliance";
+import { complianceApi } from "./api/compliance";
+import type { CheckStatus } from "./types/compliance";
+import { SaveClauseDialog, ClauseSuggestionPopover } from "./components/clauses";
+import type { NegotiationPanelAction } from "./components/negotiation";
+import { knowledgeApi } from "./api/knowledge";
+import AttachmentViewer from "./components/AttachmentViewer";
+import { attachmentsApi, type DocAttachment } from "./api/attachments";
+import PanelLoadingSpinner from "./components/PanelLoadingSpinner";
+
+const ExtractionPanel = React.lazy(() => import("./components/extraction/ExtractionPanel"));
+const CompliancePanel = React.lazy(() => import("./components/compliance/CompliancePanel"));
+const ClauseLibraryPanel = React.lazy(() => import("./components/clauses/ClauseLibraryPanel"));
+const RelatedDocsPanel = React.lazy(() => import("./components/knowledge/RelatedDocsPanel"));
+const NegotiationPanel = React.lazy(() => import("./components/negotiation/NegotiationPanel"));
+const AttachmentPanel = React.lazy(() =>
+  import("./components/AttachmentPanel").then(m => ({ default: m.AttachmentPanel }))
+);
+const ReviewersPanel = React.lazy(() =>
+  import("./components/ReviewersPanel").then(m => ({ default: m.ReviewersPanel }))
+);
+import { negotiationSessionsApi } from "./api/negotiations";
+import { clauseActionsApi, clausesApi } from "./api/clauses";
 import { NotificationBell } from "./components/notifications";
 import ProofHealthBadge from "./components/ProofHealthBadge";
 import ComposeDeterminismIndicator from "./components/ComposeDeterminismIndicator";
 import AIHeatmapToggle from "./components/AIHeatmapToggle";
 import ProofOnboardingModal, { shouldShowOnboarding } from "./components/ProofOnboardingModal";
+
+// Canvas frame embedding (Slice P9)
+import { canvasApi } from "./api/canvas";
+import type { Canvas, CanvasFrame } from "./types/canvas";
+import { isProductEnabled } from "./modules/registry";
 
 type AiAction = "summarize" | "extract_tasks" | "rewrite_for_clarity";
 type ProposalKind =
@@ -181,7 +221,7 @@ export default function EditorPage() {
   }, [userId]);
 
   // Workspace socket: for real-time events (proofs, AI jobs, etc.)
-  const { events } = useWorkspaceSocket(workspaceId, { userId, displayName: userId });
+  const { events, connectionState, reconnectAttempts } = useWorkspaceSocket(workspaceId, { userId, displayName: userId });
 
   // Document title (inline rename in toolbar)
   const [docTitle, setDocTitle] = useState("Untitled");
@@ -295,6 +335,94 @@ export default function EditorPage() {
   const [suggestionsRefreshKey, setSuggestionsRefreshKey] = useState(0);
   const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion | null>(null);
 
+  // -------- Extraction panel state --------
+  const [extractionRefreshKey, setExtractionRefreshKey] = useState(0);
+
+  // -------- Compliance panel state --------
+  const [complianceRefreshKey, setComplianceRefreshKey] = useState(0);
+  const [complianceStatus, setComplianceStatus] = useState<CheckStatus | 'unchecked'>('unchecked');
+  const [complianceViolations, setComplianceViolations] = useState(0);
+  const [complianceWarnings, setComplianceWarnings] = useState(0);
+
+  // Fetch latest compliance status for badge
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await complianceApi.getLatest(docId);
+        setComplianceStatus(res.status as CheckStatus);
+        setComplianceViolations(res.violations);
+        setComplianceWarnings(res.warnings);
+      } catch {
+        setComplianceStatus('unchecked');
+        setComplianceViolations(0);
+        setComplianceWarnings(0);
+      }
+    })();
+  }, [docId, complianceRefreshKey]);
+
+  // -------- Clause library state --------
+  const [clauseRefreshKey, setClauseRefreshKey] = useState(0);
+  const [saveClauseOpen, setSaveClauseOpen] = useState(false);
+  const [saveClauseHtml, setSaveClauseHtml] = useState('');
+  const [saveClauseText, setSaveClauseText] = useState('');
+
+  // -------- Clause suggestion state (B12) --------
+  const [hasWorkspaceClauses, setHasWorkspaceClauses] = useState(false);
+
+  // Check if workspace has any clauses on mount (for suggestion popover)
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await clausesApi.list(workspaceId, { limit: 1 });
+        setHasWorkspaceClauses(res.total > 0);
+      } catch {
+        setHasWorkspaceClauses(false);
+      }
+    })();
+  }, [workspaceId, clauseRefreshKey]);
+
+  // -------- Related docs / Knowledge Graph state (Slice 17) --------
+  const [relatedRefreshKey, setRelatedRefreshKey] = useState(0);
+  const [docEntityCount, setDocEntityCount] = useState(0);
+
+  // Fetch entity count for the current document (for toolbar badge)
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await knowledgeApi.getDocEntities(docId);
+        setDocEntityCount(res.total);
+      } catch {
+        setDocEntityCount(0);
+      }
+    })();
+  }, [docId, relatedRefreshKey]);
+
+  // -------- Negotiation panel state --------
+  const [negotiationRefreshKey, setNegotiationRefreshKey] = useState(0);
+  const [activeNegotiationCount, setActiveNegotiationCount] = useState(0);
+  const [negotiationAction, setNegotiationAction] = useState<NegotiationPanelAction>(null);
+  const [negotiationSettledFlash, setNegotiationSettledFlash] = useState(false);
+
+  // -------- Attachments panel state --------
+  const [attachmentsRefreshKey, setAttachmentsRefreshKey] = useState(0);
+  const [viewingAttachment, setViewingAttachment] = useState<DocAttachment | null>(null);
+
+  // -------- Reviewers panel state (Slice 12) --------
+  const [reviewersRefreshKey, setReviewersRefreshKey] = useState(0);
+
+  // Fetch active negotiation count for toolbar badge
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await negotiationSessionsApi.list(docId);
+        const active = res.sessions.filter(s => !['settled', 'abandoned'].includes(s.status));
+        setActiveNegotiationCount(active.length);
+      } catch {
+        setActiveNegotiationCount(0);
+      }
+    })();
+  }, [docId, negotiationRefreshKey]);
+
   // -------- Backlinks panel state --------
   const [backlinksOpen, setBacklinksOpen] = useState<boolean>(() => {
     return localStorage.getItem("kacheri:backlinksOpen") === "1";
@@ -320,6 +448,29 @@ export default function EditorPage() {
       }
       if (e.type === "suggestion" && (e as any).docId === docId) {
         setSuggestionsRefreshKey((k) => k + 1);
+      }
+      if (e.type === "extraction" && (e as any).docId === docId) {
+        setExtractionRefreshKey((k) => k + 1);
+      }
+      if (e.type === "ai_job" && (e as any).kind === "compliance_check" && (e as any).docId === docId) {
+        setComplianceRefreshKey((k) => k + 1);
+      }
+      if (e.type === "ai_job" && (e as any).kind === "knowledge_index") {
+        setRelatedRefreshKey((k) => k + 1);
+      }
+      if (e.type === "negotiation" || (e.type === "ai_job" && ((e as any).kind === "negotiation_import" || (e as any).kind === "negotiation_analyze" || (e as any).kind === "negotiation_counterproposal"))) {
+        setNegotiationRefreshKey((k) => k + 1);
+      }
+      if (e.type === "attachment" && (e as any).docId === docId) {
+        setAttachmentsRefreshKey((k) => k + 1);
+      }
+      if (e.type === "reviewer" && (e as any).docId === docId) {
+        setReviewersRefreshKey((k) => k + 1);
+      }
+      // Settlement notification flash (Slice 16)
+      if (e.type === "negotiation" && (e as any).action === "settled") {
+        setNegotiationSettledFlash(true);
+        setTimeout(() => setNegotiationSettledFlash(false), 5000);
       }
     }
     seenCountRef.current = events.length;
@@ -357,6 +508,13 @@ export default function EditorPage() {
   // ---- Image Insert dialog state ----
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [docPickerOpen, setDocPickerOpen] = useState(false);
+
+  // ---- Canvas Frame Embed picker state (Slice P9) ----
+  const [canvasPickerOpen, setCanvasPickerOpen] = useState(false);
+  const [canvasPickerList, setCanvasPickerList] = useState<Canvas[]>([]);
+  const [canvasPickerFrames, setCanvasPickerFrames] = useState<CanvasFrame[]>([]);
+  const [canvasPickerSelectedCanvas, setCanvasPickerSelectedCanvas] = useState<string | null>(null);
+  const [canvasPickerLoading, setCanvasPickerLoading] = useState(false);
 
   // ---- Keyboard Shortcuts modal state ----
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -511,6 +669,16 @@ export default function EditorPage() {
   const [translateSource, setTranslateSource] = useState("");
   const [translateIsFullDoc, setTranslateIsFullDoc] = useState(false);
 
+  // ---- View Original (imported source) state ----
+  const [importMeta, setImportMeta] = useState<{
+    docId: string;
+    kind: string;
+    sourceUrl: string | null;
+    meta: any;
+    ts: number;
+  } | null>(null);
+  const [originalSourceOpen, setOriginalSourceOpen] = useState(false);
+
   // Handle Translate button click
   const handleTranslate = useCallback(() => {
     const api = editorApiRef.current;
@@ -557,6 +725,18 @@ export default function EditorPage() {
     [translateIsFullDoc]
   );
 
+  // ---- Fetch import metadata for "View Original" button ----
+  useEffect(() => {
+    (async () => {
+      try {
+        const meta = await DocsAPI.getImportMeta(docId);
+        setImportMeta(meta);
+      } catch {
+        setImportMeta(null);
+      }
+    })();
+  }, [docId]);
+
   // ---- Drawer state (Calm/Pro Layout) ----
   const [leftDrawerOpen, setLeftDrawerOpen] = useState<boolean>(() => {
     return localStorage.getItem("kacheri:leftDrawerOpen") === "1";
@@ -565,21 +745,125 @@ export default function EditorPage() {
     return localStorage.getItem("kacheri:rightDrawerOpen") === "1";
   });
   const [rightDrawerTab, setRightDrawerTab] = useState<
-    "proofs" | "comments" | "versions" | "suggestions" | "backlinks"
+    "proofs" | "comments" | "versions" | "suggestions" | "backlinks" | "extraction" | "compliance" | "clauses" | "related" | "negotiations" | "attachments" | "reviewers"
   >("proofs");
   const [composeInput, setComposeInput] = useState("");
+
+  // ---- Mobile responsive state ----
+  const [toolbarExpanded, setToolbarExpanded] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Swipe-to-dismiss for drawers (mobile bottom sheet)
+  const drawerTouchStartY = useRef<number | null>(null);
+  const handleDrawerTouchStart = useCallback((e: React.TouchEvent) => {
+    drawerTouchStartY.current = e.touches[0].clientY;
+  }, []);
+  const handleDrawerTouchEnd = useCallback((e: React.TouchEvent, close: () => void) => {
+    if (drawerTouchStartY.current == null) return;
+    const deltaY = e.changedTouches[0].clientY - drawerTouchStartY.current;
+    if (deltaY > 80) close();
+    drawerTouchStartY.current = null;
+  }, []);
 
   // ---- Connection status for realtime badge ----
   const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   // Poll connection status from editor ref (updates when connection changes)
+  // Perf: 3000ms is sufficient — connection changes are rare events
   useEffect(() => {
     const checkConnection = () => {
       const connected = editorApiRef.current?.isConnected?.() ?? false;
-      setRealtimeConnected(connected);
+      setRealtimeConnected(prev => prev === connected ? prev : connected);
     };
     checkConnection();
-    const interval = setInterval(checkConnection, 1000);
+    const interval = setInterval(checkConnection, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ---- Connection status badge: auto-hide "Connected" after 3s ----
+  const [badgeVisible, setBadgeVisible] = useState(true);
+  const badgeTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (badgeTimerRef.current != null) window.clearTimeout(badgeTimerRef.current);
+    if (connectionState === 'connected') {
+      badgeTimerRef.current = window.setTimeout(() => {
+        setBadgeVisible(false);
+        badgeTimerRef.current = null;
+      }, 3000) as unknown as number;
+    } else {
+      setBadgeVisible(true);
+    }
+    return () => {
+      if (badgeTimerRef.current != null) window.clearTimeout(badgeTimerRef.current);
+    };
+  }, [connectionState]);
+
+  // ---- Conflict banner: show when reconnecting after offline edits ----
+  const hadOfflineEditsRef = useRef(false);
+  const [showConflictBanner, setShowConflictBanner] = useState(false);
+  const prevConnectionStateRef = useRef<ConnectionState>(connectionState);
+  useEffect(() => {
+    const prev = prevConnectionStateRef.current;
+    prevConnectionStateRef.current = connectionState;
+    // Track: if user was offline and now came back online, check for offline edits
+    if ((prev === 'offline' || prev === 'reconnecting') && (connectionState === 'syncing' || connectionState === 'connected')) {
+      if (hadOfflineEditsRef.current) {
+        setShowConflictBanner(true);
+        hadOfflineEditsRef.current = false;
+        // Auto-dismiss after 30s
+        const t = window.setTimeout(() => setShowConflictBanner(false), 30_000);
+        return () => window.clearTimeout(t);
+      }
+    }
+  }, [connectionState]);
+
+  // Detect edits while offline via keydown on editor area
+  useEffect(() => {
+    if (connectionState !== 'offline') return;
+    const handler = (e: KeyboardEvent) => {
+      // Printable key or backspace/delete — likely an edit
+      if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Enter') {
+        hadOfflineEditsRef.current = true;
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [connectionState]);
+
+  // ---- Numbering style state (tracked from editor selection) ----
+  const [currentNumberingStyle, setCurrentNumberingStyle] = useState<NumberingStyle>("decimal");
+  const [startFromValue, setStartFromValue] = useState<number | null>(null);
+
+  // ---- Column layout state (tracked from editor selection) ----
+  const [currentColumnCount, setCurrentColumnCount] = useState<number>(0);
+  const [currentColumnGap, setCurrentColumnGap] = useState<ColumnGap>("medium");
+  const [currentColumnRule, setCurrentColumnRule] = useState<ColumnRule>("none");
+  const [currentColumnWidths, setCurrentColumnWidths] = useState<string | null>(null);
+
+  // Perf: 500ms poll with setState guards — React skips re-render when
+  // functional updater returns the same value (avoids unnecessary renders)
+  useEffect(() => {
+    const check = () => {
+      const editor = editorApiRef.current?.editor;
+      if (!editor) return;
+      // Numbering attributes
+      const listAttrs = editor.getAttributes("orderedList");
+      const newStyle = (listAttrs?.numberingStyle as NumberingStyle) || "decimal";
+      const newStart = listAttrs?.startFrom ?? null;
+      setCurrentNumberingStyle(prev => prev === newStyle ? prev : newStyle);
+      setStartFromValue(prev => prev === newStart ? prev : newStart);
+      // Column attributes — 0 means cursor is not inside a columnSection
+      const colAttrs = editor.getAttributes("columnSection");
+      const newColCount = colAttrs?.columns ?? 0;
+      const newGap = (colAttrs?.columnGap as ColumnGap) || "medium";
+      const newRule = (colAttrs?.columnRule as ColumnRule) || "none";
+      const newWidths = colAttrs?.columnWidths ?? null;
+      setCurrentColumnCount(prev => prev === newColCount ? prev : newColCount);
+      setCurrentColumnGap(prev => prev === newGap ? prev : newGap);
+      setCurrentColumnRule(prev => prev === newRule ? prev : newRule);
+      setCurrentColumnWidths(prev => prev === newWidths ? prev : newWidths);
+    };
+    const interval = setInterval(check, 500);
     return () => clearInterval(interval);
   }, []);
 
@@ -1061,6 +1345,61 @@ export default function EditorPage() {
     setCommentsOpen(true);
   }, []);
 
+  // ---- Save as Clause handler (B10) ----
+  const handleSaveAsClause = useCallback(() => {
+    const api = editorApiRef.current;
+    if (!api) return;
+
+    const selectedText = api.getSelectionText?.() || '';
+    if (!selectedText.trim()) {
+      alert('Select some text first to save as a clause.');
+      return;
+    }
+
+    // Wrap plain text in paragraph tags for HTML content
+    const htmlContent = `<p>${selectedText.replace(/\n/g, '</p><p>')}</p>`;
+
+    setSaveClauseHtml(htmlContent);
+    setSaveClauseText(selectedText);
+    setSaveClauseOpen(true);
+  }, []);
+
+  // ---- Insert Clause handler (B11) ----
+  const handleInsertClause = useCallback(async (clauseId: string) => {
+    const api = editorApiRef.current;
+    if (!api) return;
+
+    try {
+      const res = await clauseActionsApi.insert(docId, {
+        clauseId,
+        insertionMethod: 'manual',
+      });
+
+      // Insert clause HTML at cursor position
+      api.insertBelowSelection(res.contentHtml);
+
+      // Refresh proofs panel (clause insertion creates a proof)
+      setProofsRefreshKey(k => k + 1);
+
+      alert(`Clause '${res.clauseTitle}' inserted (tracked)`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to insert clause';
+      alert(`Insert clause failed: ${msg}`);
+    }
+  }, [docId]);
+
+  // ---- AI clause suggestion replace handler (B12) ----
+  const handleClauseSuggestionReplace = useCallback((clauseHtml: string, _clauseId: string) => {
+    const api = editorApiRef.current;
+    if (!api) return;
+
+    // Replace the selected text with the standard clause content
+    api.replaceSelection(clauseHtml);
+
+    // Refresh proofs panel (clause insertion creates a proof)
+    setProofsRefreshKey(k => k + 1);
+  }, []);
+
   // ---- Import handoff detection ----
   useEffect(() => {
     if (importHandled || !docId) return;
@@ -1262,6 +1601,44 @@ export default function EditorPage() {
     [promptKind, docId, docTitle, navigate, closePrompt]
   );
 
+  // ---- Canvas Frame Embed helpers (Slice P9) ----
+  const openCanvasPicker = useCallback(async () => {
+    if (!isProductEnabled("design-studio") || !workspaceId) return;
+    setCanvasPickerOpen(true);
+    setCanvasPickerLoading(true);
+    setCanvasPickerSelectedCanvas(null);
+    setCanvasPickerFrames([]);
+    try {
+      const res = await canvasApi.list(workspaceId, { limit: 100 });
+      setCanvasPickerList(res.canvases);
+    } catch {
+      setCanvasPickerList([]);
+    } finally {
+      setCanvasPickerLoading(false);
+    }
+  }, [workspaceId]);
+
+  const selectCanvasForEmbed = useCallback(async (canvasId: string) => {
+    if (!workspaceId) return;
+    setCanvasPickerSelectedCanvas(canvasId);
+    setCanvasPickerLoading(true);
+    try {
+      const canvasWithFrames = await canvasApi.get(workspaceId, canvasId);
+      setCanvasPickerFrames(canvasWithFrames.frames || []);
+    } catch {
+      setCanvasPickerFrames([]);
+    } finally {
+      setCanvasPickerLoading(false);
+    }
+  }, [workspaceId]);
+
+  const insertCanvasFrame = useCallback((canvasId: string, frameId: string) => {
+    const ed = editorApiRef.current?.editor;
+    if (!ed) return;
+    ed.chain().focus().insertCanvasEmbed({ canvasId, frameId, aspectRatio: "16/9" }).run();
+    setCanvasPickerOpen(false);
+  }, []);
+
   // ---- Command Palette registry ----
   const commands: Command[] = useMemo(
     () => [
@@ -1297,6 +1674,18 @@ export default function EditorPage() {
         title: "Export → DOCX (queue)",
         run: () => queueExportDocx(),
       },
+
+      // View Original (only for imported documents)
+      ...(importMeta && importMeta.sourceUrl
+        ? [
+            {
+              id: "view-original",
+              title: "View Original Source",
+              hint: importMeta.kind?.replace("import:", "").toUpperCase(),
+              run: () => setOriginalSourceOpen(true),
+            },
+          ]
+        : []),
 
       // AI (heuristics)
       {
@@ -1339,6 +1728,119 @@ export default function EditorPage() {
         run: (input?: string) =>
           runConstrainedRewriteFromPalette(input),
       },
+
+      // Document Intelligence
+      {
+        id: "extract-intelligence",
+        title: "Extract Intelligence",
+        hint: "Open Document Intelligence panel",
+        run: () => {
+          setRightDrawerTab("extraction");
+          setRightDrawerOpen(true);
+        },
+      },
+
+      // Compliance Checker
+      {
+        id: "check-compliance",
+        title: "Check Compliance",
+        hint: "Open Compliance Checker panel",
+        run: () => {
+          setRightDrawerTab("compliance");
+          setRightDrawerOpen(true);
+        },
+      },
+
+      // Clause Library (B10 + B11)
+      {
+        id: "save-as-clause",
+        title: "Save as Clause",
+        hint: "Save selected text to Clause Library",
+        run: () => handleSaveAsClause(),
+      },
+      {
+        id: "insert-clause",
+        title: "Insert Clause",
+        hint: "Open Clause Library to insert",
+        run: () => {
+          setRightDrawerTab("clauses");
+          setRightDrawerOpen(true);
+        },
+      },
+
+      // Knowledge Graph (Slice 17)
+      {
+        id: "find-related-docs",
+        title: "Find Related Documents",
+        hint: "Open Related Documents panel",
+        run: () => {
+          setRightDrawerTab("related");
+          setRightDrawerOpen(true);
+        },
+      },
+      {
+        id: "search-knowledge",
+        title: "Search Knowledge",
+        hint: "Open Knowledge Explorer for semantic search",
+        run: () => navigate(`/workspaces/${workspaceId}/knowledge`),
+      },
+
+      // Negotiation (Slice 16)
+      {
+        id: "start-negotiation",
+        title: "Start Negotiation",
+        hint: "Create a new negotiation session",
+        run: () => {
+          setNegotiationAction('create');
+          setRightDrawerTab("negotiations");
+          setRightDrawerOpen(true);
+        },
+      },
+      {
+        id: "import-counterparty-doc",
+        title: "Import Counterparty Document",
+        hint: "Import document into active negotiation",
+        run: () => {
+          if (activeNegotiationCount === 0) { alert("No active negotiation. Start one first."); return; }
+          setNegotiationAction('import');
+          setRightDrawerTab("negotiations");
+          setRightDrawerOpen(true);
+        },
+      },
+      {
+        id: "view-redline",
+        title: "View Redline Comparison",
+        hint: "Compare negotiation rounds side-by-side",
+        run: () => {
+          if (activeNegotiationCount === 0) { alert("No active negotiation. Start one first."); return; }
+          setNegotiationAction('redline');
+          setRightDrawerTab("negotiations");
+          setRightDrawerOpen(true);
+        },
+      },
+      {
+        id: "analyze-changes",
+        title: "Analyze Changes",
+        hint: "AI analysis on negotiation changes",
+        run: () => {
+          if (activeNegotiationCount === 0) { alert("No active negotiation. Start one first."); return; }
+          setNegotiationAction('analyze');
+          setRightDrawerTab("negotiations");
+          setRightDrawerOpen(true);
+        },
+      },
+
+      // Canvas Frame Embedding (Slice P9)
+      ...(isProductEnabled("design-studio")
+        ? [
+            {
+              id: "insert-canvas-frame",
+              title: "Insert Canvas Frame",
+              hint: "Embed a Design Studio frame",
+              run: () => openCanvasPicker(),
+            },
+          ]
+        : []),
     ],
     [
       navigate,
@@ -1351,6 +1853,10 @@ export default function EditorPage() {
       runCompose,
       runSelectiveRewriteFromPalette,
       runConstrainedRewriteFromPalette,
+      importMeta,
+      handleSaveAsClause,
+      activeNegotiationCount,
+      openCanvasPicker,
     ]
   );
 
@@ -1380,6 +1886,23 @@ export default function EditorPage() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // ---- Ctrl/Cmd+Shift+N hotkey for Negotiate panel (Slice 16) ----
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        if (rightDrawerTab === "negotiations" && rightDrawerOpen) {
+          setRightDrawerOpen(false);
+        } else {
+          setRightDrawerTab("negotiations");
+          setRightDrawerOpen(true);
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [rightDrawerTab, rightDrawerOpen]);
+
   return (
     <div className="editor-layout">
       {/* ============================================================
@@ -1387,6 +1910,16 @@ export default function EditorPage() {
           Navigation, Compose input, Document title, Page Setup, Share
           ============================================================ */}
       <div className="editor-topbar">
+        {/* Hamburger menu — visible only on tablet/phone via CSS */}
+        <button
+          className="button ghost sm mobile-hamburger"
+          onClick={() => setMobileNavOpen((o) => !o)}
+          title="Navigation menu"
+          style={{ fontSize: 16, flexShrink: 0 }}
+        >
+          ☰
+        </button>
+
         <button
           className="button ghost sm"
           onClick={() => navigate("/")}
@@ -1396,7 +1929,7 @@ export default function EditorPage() {
         </button>
 
         <input
-          className="editor-topbar-input"
+          className="editor-topbar-input topbar-hide-tablet"
           placeholder="Type a prompt and press Enter to compose..."
           value={composeInput}
           onChange={(e) => setComposeInput(e.target.value)}
@@ -1409,7 +1942,7 @@ export default function EditorPage() {
         />
 
         <button
-          className="button primary sm"
+          className="button primary sm topbar-hide-tablet"
           onClick={handleComposeSubmit}
           disabled={!composeInput.trim()}
           style={{ fontSize: 13, flexShrink: 0 }}
@@ -1419,9 +1952,35 @@ export default function EditorPage() {
 
         <div className="spacer" />
 
+        {/* Connection status badge */}
+        <div
+          className={`connection-badge${connectionState === 'connected' && !badgeVisible ? ' fade-out' : ''}`}
+          aria-live="polite"
+          role="status"
+        >
+          <span
+            className={`connection-dot${
+              connectionState === 'connected' || connectionState === 'syncing'
+                ? ' green'
+                : connectionState === 'reconnecting'
+                ? ' amber pulse'
+                : ' red'
+            }`}
+          />
+          <span className="connection-label">
+            {connectionState === 'connected'
+              ? 'Connected'
+              : connectionState === 'syncing'
+              ? 'Syncing...'
+              : connectionState === 'reconnecting'
+              ? `Reconnecting (${reconnectAttempts}/\u221E)...`
+              : 'Offline \u2014 changes saved locally'}
+          </span>
+        </div>
+
         {/* Document title */}
         <input
-          className="input sm"
+          className="input sm topbar-doc-title"
           style={{
             width: 200,
             maxWidth: "20vw",
@@ -1441,13 +2000,17 @@ export default function EditorPage() {
         </span>
 
         {/* Proof Health Badge - Phase 5 P1.1 */}
-        <ProofHealthBadge docId={docId} size="md" />
+        <span className="topbar-hide-mobile">
+          <ProofHealthBadge docId={docId} size="md" />
+        </span>
 
         {/* Compose Determinism Indicator - Phase 5 P1.4 */}
-        <ComposeDeterminismIndicator docId={docId} compact />
+        <span className="topbar-hide-mobile">
+          <ComposeDeterminismIndicator docId={docId} compact />
+        </span>
 
         <button
-          className="button subtle sm"
+          className="button subtle sm topbar-hide-phone"
           title="Page Setup"
           onClick={() => setPageSetupOpen(true)}
           style={{ fontSize: 12, flexShrink: 0 }}
@@ -1468,9 +2031,9 @@ export default function EditorPage() {
           MAIN TOOLBAR: Essential Actions Only
           Insert items, Export, Find, Command Palette
           ============================================================ */}
-      <div className="toolbar">
+      <div className="toolbar" role="toolbar" aria-label="Document toolbar">
         <div
-          className="toolbar-inner"
+          className={`toolbar-inner${toolbarExpanded ? ' expanded' : ''}`}
           style={{
             display: "flex",
             alignItems: "center",
@@ -1479,159 +2042,270 @@ export default function EditorPage() {
             flexWrap: "wrap",
           }}
         >
-          {/* Left Drawer Toggle */}
+          {/* Overflow toggle — visible only on tablet/phone via CSS */}
           <button
-            className={`button sm ${leftDrawerOpen ? "primary" : "subtle"}`}
-            onClick={() => setLeftDrawerOpen((o) => !o)}
-            title="Toggle formatting tools"
-            style={{ fontSize: 12 }}
+            className="button subtle sm toolbar-overflow-toggle"
+            onClick={() => setToolbarExpanded((o) => !o)}
+            title={toolbarExpanded ? "Collapse toolbar" : "More tools"}
+            aria-expanded={toolbarExpanded}
+            style={{ fontSize: 14 }}
           >
-            Format
+            {toolbarExpanded ? "✕" : "≡"}
           </button>
 
-          {/* Divider */}
-          <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
+          {/* PRIMARY GROUP: Always visible */}
+          <div className="toolbar-group toolbar-group-primary" role="group" aria-label="Primary actions">
+            <button
+              className={`button sm ${leftDrawerOpen ? "primary" : "subtle"}`}
+              onClick={() => setLeftDrawerOpen((o) => !o)}
+              title="Toggle formatting tools"
+              aria-expanded={leftDrawerOpen}
+              style={{ fontSize: 12 }}
+            >
+              Format
+            </button>
+            <div className="toolbar-divider" />
+            <button
+              className="button subtle sm toolbar-insert-btn"
+              title="Insert table"
+              onClick={() => editorApiRef.current?.insertTable?.({ rows: 3, cols: 3, withHeaderRow: true })}
+              style={{ fontSize: 12 }}
+            >
+              Table
+            </button>
+            <button
+              className="button subtle sm toolbar-insert-btn"
+              title="Insert image"
+              onClick={() => setImageDialogOpen(true)}
+              style={{ fontSize: 12 }}
+            >
+              Image
+            </button>
+            <button
+              className="button subtle sm toolbar-insert-btn"
+              title="Insert doc link"
+              onClick={() => setDocPickerOpen(true)}
+              style={{ fontSize: 12 }}
+            >
+              Link
+            </button>
+            <button
+              className="button subtle sm toolbar-insert-btn"
+              title="Insert page break"
+              onClick={() => editorApiRef.current?.insertPageBreak?.()}
+              style={{ fontSize: 12 }}
+            >
+              Break
+            </button>
+            <div className="toolbar-divider" />
+            <button
+              className="button primary sm"
+              onClick={runCompose}
+              style={{ fontSize: 12, fontWeight: 600 }}
+            >
+              Propose...
+            </button>
+          </div>
 
-          {/* Insert items */}
-          <button
-            className="button subtle sm"
-            title="Insert table"
-            onClick={() => editorApiRef.current?.insertTable?.({ rows: 3, cols: 3, withHeaderRow: true })}
-            style={{ fontSize: 12 }}
-          >
-            Table
-          </button>
-          <button
-            className="button subtle sm"
-            title="Insert image"
-            onClick={() => setImageDialogOpen(true)}
-            style={{ fontSize: 12 }}
-          >
-            Image
-          </button>
-          <button
-            className="button subtle sm"
-            title="Insert doc link"
-            onClick={() => setDocPickerOpen(true)}
-            style={{ fontSize: 12 }}
-          >
-            Link
-          </button>
-          <button
-            className="button subtle sm"
-            title="Insert page break"
-            onClick={() => editorApiRef.current?.insertPageBreak?.()}
-            style={{ fontSize: 12 }}
-          >
-            Break
-          </button>
+          {/* SECONDARY GROUP: Export, voice, translate */}
+          <div className="toolbar-group toolbar-group-secondary" role="group" aria-label="Export and voice">
+            <AIHeatmapToggle
+              docId={docId}
+              editor={editorApiRef.current?.editor ?? null}
+            />
+            <div className="toolbar-divider" />
+            <button className="button subtle sm" onClick={runExportPdf} style={{ fontSize: 12 }}>PDF</button>
+            <button className="button subtle sm" onClick={queueExportDocx} style={{ fontSize: 12 }}>DOCX</button>
+            {importMeta && importMeta.sourceUrl && (
+              <button
+                className="button subtle sm"
+                onClick={() => setOriginalSourceOpen(true)}
+                title="View original imported file"
+                style={{ fontSize: 12 }}
+              >
+                Original
+              </button>
+            )}
+            <button
+              className={`button subtle sm ${ttsState.status !== 'idle' ? 'active' : ''}`}
+              onClick={handleReadAloud}
+              title="Read selected text or full document aloud"
+              style={{ fontSize: 12 }}
+            >
+              Read
+            </button>
+            <button
+              className={`button subtle sm ${sttState.status === 'recording' ? 'active' : ''}`}
+              onClick={handleDictate}
+              title="Dictate text (voice input)"
+              style={{ fontSize: 12 }}
+            >
+              Dictate
+            </button>
+            <button
+              className="button subtle sm"
+              onClick={handleTranslate}
+              title="Translate selection or full document"
+              style={{ fontSize: 12 }}
+            >
+              Translate
+            </button>
+          </div>
 
-          {/* Divider */}
-          <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
-
-          {/* AI / Propose - VISIBLE, PROMINENT */}
-          <button
-            className="button primary sm"
-            onClick={runCompose}
-            style={{ fontSize: 12, fontWeight: 600 }}
-          >
-            Propose...
-          </button>
-
-          {/* AI Heatmap Toggle - Phase 5 P1.2 */}
-          <AIHeatmapToggle
-            docId={docId}
-            editor={editorApiRef.current?.editor ?? null}
-          />
-
-          {/* Divider */}
-          <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
-
-          {/* Export */}
-          <button className="button subtle sm" onClick={runExportPdf} style={{ fontSize: 12 }}>PDF</button>
-          <button className="button subtle sm" onClick={queueExportDocx} style={{ fontSize: 12 }}>DOCX</button>
-          <button
-            className={`button subtle sm ${ttsState.status !== 'idle' ? 'active' : ''}`}
-            onClick={handleReadAloud}
-            title="Read selected text or full document aloud"
-            style={{ fontSize: 12 }}
-          >
-            Read
-          </button>
-          <button
-            className={`button subtle sm ${sttState.status === 'recording' ? 'active' : ''}`}
-            onClick={handleDictate}
-            title="Dictate text (voice input)"
-            style={{ fontSize: 12 }}
-          >
-            Dictate
-          </button>
-          <button
-            className="button subtle sm"
-            onClick={handleTranslate}
-            title="Translate selection or full document"
-            style={{ fontSize: 12 }}
-          >
-            Translate
-          </button>
+          {/* INTEL GROUP: Intelligence, compliance, clauses, related, negotiate */}
+          <div className="toolbar-group toolbar-group-intel" role="group" aria-label="Intelligence">
+            <button
+              className={`button subtle sm ${rightDrawerTab === "extraction" && rightDrawerOpen ? "active" : ""}`}
+              onClick={() => {
+                setRightDrawerTab("extraction");
+                setRightDrawerOpen(true);
+              }}
+              title="Document Intelligence"
+              style={{ fontSize: 12 }}
+            >
+              Intel
+            </button>
+            <button
+              className={`button subtle sm ${rightDrawerTab === "compliance" && rightDrawerOpen ? "active" : ""}`}
+              onClick={() => {
+                setRightDrawerTab("compliance");
+                setRightDrawerOpen(true);
+              }}
+              title="Compliance Checker"
+              style={{ fontSize: 12 }}
+            >
+              Comply
+            </button>
+            <ComplianceBadge
+              status={complianceStatus}
+              violations={complianceViolations}
+              warnings={complianceWarnings}
+            />
+            <button
+              className={`button subtle sm ${rightDrawerTab === "clauses" && rightDrawerOpen ? "active" : ""}`}
+              onClick={() => {
+                setRightDrawerTab("clauses");
+                setRightDrawerOpen(true);
+              }}
+              title="Clause Library"
+              style={{ fontSize: 12 }}
+            >
+              Clauses
+            </button>
+            <button
+              className="button subtle sm"
+              onClick={handleSaveAsClause}
+              title="Save selected text as a clause"
+              style={{ fontSize: 12 }}
+            >
+              Save Clause
+            </button>
+            <button
+              className={`button subtle sm ${rightDrawerTab === "related" && rightDrawerOpen ? "active" : ""}`}
+              onClick={() => {
+                setRightDrawerTab("related");
+                setRightDrawerOpen(true);
+              }}
+              title="Related Documents"
+              style={{ fontSize: 12, position: 'relative' }}
+            >
+              Related
+              {docEntityCount > 0 && (
+                <span style={{
+                  position: 'absolute', top: -4, right: -4,
+                  background: '#6366f1', color: '#fff',
+                  borderRadius: '50%', minWidth: 16, height: 16,
+                  fontSize: 10, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', padding: '0 4px',
+                }}>
+                  {docEntityCount > 99 ? '99+' : docEntityCount}
+                </span>
+              )}
+            </button>
+            <button
+              className={`button subtle sm ${rightDrawerTab === "negotiations" && rightDrawerOpen ? "active" : ""}`}
+              onClick={() => {
+                setRightDrawerTab("negotiations");
+                setRightDrawerOpen(true);
+              }}
+              title="Negotiation Sessions"
+              style={{ fontSize: 12, position: 'relative' }}
+            >
+              Negotiate
+              {activeNegotiationCount > 0 && (
+                <span style={{
+                  position: 'absolute', top: -4, right: -4,
+                  background: '#f59e0b', color: '#000',
+                  borderRadius: '50%', minWidth: 16, height: 16,
+                  fontSize: 10, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', padding: '0 4px',
+                }}>
+                  {activeNegotiationCount > 9 ? '9+' : activeNegotiationCount}
+                </span>
+              )}
+            </button>
+          </div>
 
           <div className="spacer" />
 
-          {/* Right side controls */}
-          <button
-            className="button subtle sm"
-            title="Add comment on selection"
-            onClick={handleAddComment}
-            style={{ fontSize: 12 }}
-          >
-            + Comment
-          </button>
-
-          <button
-            className="button subtle sm"
-            title="Find & replace (Ctrl/Cmd+F)"
-            onClick={() => { setFindOpen(true); runFind("forward"); }}
-            style={{ fontSize: 12 }}
-          >
-            Find
-          </button>
-
-          <button
-            className="button subtle sm"
-            onMouseDown={(e) => { e.preventDefault(); captureForPalette(); }}
-            onClick={() => setPalOpen(true)}
-            title="Command Palette (Ctrl/Cmd + K)"
-            style={{ fontSize: 12 }}
-          >
-            ⌘K
-          </button>
-
-          <button
-            className="button subtle sm"
-            onClick={() => setShortcutsOpen(true)}
-            title="Keyboard Shortcuts (Ctrl/Cmd + ?)"
-            style={{ fontSize: 12 }}
-          >
-            ?
-          </button>
-
-          {/* Notification Bell */}
-          <NotificationBell
-            workspaceId={getWorkspaceId()}
-            currentUserId={getUserId()}
-          />
-
-          {/* Right Drawer Toggle */}
-          <button
-            className={`button sm ${rightDrawerOpen ? "primary" : "subtle"}`}
-            onClick={() => setRightDrawerOpen((o) => !o)}
-            title="Toggle panels"
-            style={{ fontSize: 12 }}
-          >
-            Panels
-          </button>
+          {/* ACTIONS GROUP: Always visible */}
+          <div className="toolbar-group toolbar-group-actions" role="group" aria-label="Utilities">
+            <button
+              className="button subtle sm"
+              title="Add comment on selection"
+              onClick={handleAddComment}
+              style={{ fontSize: 12 }}
+            >
+              + Comment
+            </button>
+            <button
+              className="button subtle sm"
+              title="Find & replace (Ctrl/Cmd+F)"
+              onClick={() => { setFindOpen(true); runFind("forward"); }}
+              style={{ fontSize: 12 }}
+            >
+              Find
+            </button>
+            <button
+              className="button subtle sm"
+              onMouseDown={(e) => { e.preventDefault(); captureForPalette(); }}
+              onClick={() => setPalOpen(true)}
+              title="Command Palette (Ctrl/Cmd + K)"
+              style={{ fontSize: 12 }}
+            >
+              ⌘K
+            </button>
+            <button
+              className="button subtle sm"
+              onClick={() => setShortcutsOpen(true)}
+              title="Keyboard Shortcuts (Ctrl/Cmd + ?)"
+              style={{ fontSize: 12 }}
+            >
+              ?
+            </button>
+            <NotificationBell
+              workspaceId={getWorkspaceId()}
+              currentUserId={getUserId()}
+            />
+            <button
+              className={`button sm ${rightDrawerOpen ? "primary" : "subtle"}`}
+              onClick={() => setRightDrawerOpen((o) => !o)}
+              title="Toggle panels"
+              aria-expanded={rightDrawerOpen}
+              style={{ fontSize: 12 }}
+            >
+              Panels
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Conflict banner — shown when reconnecting after offline edits */}
+      {showConflictBanner && (
+        <div className="editor-banner editor-banner-warning" role="alert">
+          <span>Some changes may have conflicted during offline editing. Please review recent changes.</span>
+        </div>
+      )}
 
       {/* ============================================================
           MAIN AREA: Left Drawer + Document + Right Drawer
@@ -1656,7 +2330,12 @@ export default function EditorPage() {
         </button>
 
         {/* Left Drawer - Formatting Tools */}
-        <aside className={`drawer-left ${leftDrawerOpen ? "is-open" : ""}`}>
+        <aside
+          className={`drawer-left ${leftDrawerOpen ? "is-open" : ""}`}
+          onTouchStart={handleDrawerTouchStart}
+          onTouchEnd={(e) => handleDrawerTouchEnd(e, () => setLeftDrawerOpen(false))}
+        >
+          <div className="drawer-drag-handle" />
           <div className="drawer-header">
             <span className="drawer-title">Format</span>
             <button className="drawer-close" onClick={() => setLeftDrawerOpen(false)}>×</button>
@@ -1735,6 +2414,130 @@ export default function EditorPage() {
                 <button className="button subtle sm" title="Decrease indent" onClick={() => editorApiRef.current?.liftListItem?.()} style={{ minWidth: 36 }}>←</button>
                 <button className="button subtle sm" title="Increase indent" onClick={() => editorApiRef.current?.sinkListItem?.()} style={{ minWidth: 36 }}>→</button>
               </div>
+              <div className="drawer-formatting-row" style={{ marginTop: 6 }}>
+                <select
+                  className="input sm"
+                  style={{ width: "100%" }}
+                  title="Numbering style"
+                  value={currentNumberingStyle}
+                  onChange={(e) => {
+                    editorApiRef.current?.setNumberingStyle?.(e.target.value as NumberingStyle);
+                  }}
+                >
+                  <option value="decimal">1, 2, 3 (Decimal)</option>
+                  <option value="legal">1.1, 1.1.1 (Legal)</option>
+                  <option value="alpha-lower">a, b, c (Alpha)</option>
+                  <option value="alpha-upper">A, B, C (Alpha Upper)</option>
+                  <option value="roman-lower">i, ii, iii (Roman)</option>
+                  <option value="roman-upper">I, II, III (Roman Upper)</option>
+                  <option value="outline">Outline (legacy)</option>
+                </select>
+              </div>
+              <div className="drawer-formatting-row" style={{ marginTop: 4, alignItems: "center", gap: 6 }}>
+                <label style={{ fontSize: 11, whiteSpace: "nowrap" }}>Start at:</label>
+                <input
+                  className="input sm"
+                  type="number"
+                  min={1}
+                  style={{ width: 60 }}
+                  value={startFromValue ?? ""}
+                  placeholder="Auto"
+                  onChange={(e) => {
+                    const val = e.target.value ? parseInt(e.target.value, 10) : null;
+                    editorApiRef.current?.setStartFrom?.(val && !isNaN(val) ? val : null);
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Layout Group */}
+            <div className="drawer-formatting-group">
+              <div className="drawer-formatting-label">Layout</div>
+              <div className="drawer-formatting-row">
+                <select
+                  className="input sm"
+                  style={{ width: "100%" }}
+                  title="Column layout"
+                  value={currentColumnCount || 0}
+                  onChange={(e) => {
+                    const cols = parseInt(e.target.value, 10);
+                    if (cols === 0) {
+                      editorApiRef.current?.unwrapColumns?.();
+                    } else if (currentColumnCount === 0) {
+                      editorApiRef.current?.wrapInColumns?.(cols);
+                    } else {
+                      editorApiRef.current?.setColumnCount?.(cols);
+                    }
+                  }}
+                >
+                  <option value={0}>No Columns</option>
+                  <option value={2}>2 Columns</option>
+                  <option value={3}>3 Columns</option>
+                  <option value={4}>4 Columns</option>
+                </select>
+              </div>
+              {currentColumnCount >= 2 && (
+                <>
+                  <div className="drawer-formatting-row" style={{ marginTop: 6, gap: 6 }}>
+                    <select
+                      className="input sm"
+                      style={{ flex: 1 }}
+                      title="Column gap"
+                      value={currentColumnGap}
+                      onChange={(e) => {
+                        editorApiRef.current?.setColumnGap?.(e.target.value as ColumnGap);
+                      }}
+                    >
+                      <option value="narrow">Gap: Narrow</option>
+                      <option value="medium">Gap: Medium</option>
+                      <option value="wide">Gap: Wide</option>
+                    </select>
+                    <select
+                      className="input sm"
+                      style={{ flex: 1 }}
+                      title="Column rule"
+                      value={currentColumnRule}
+                      onChange={(e) => {
+                        editorApiRef.current?.setColumnRule?.(e.target.value as ColumnRule);
+                      }}
+                    >
+                      <option value="none">Rule: None</option>
+                      <option value="thin">Rule: Thin</option>
+                      <option value="medium">Rule: Medium</option>
+                    </select>
+                  </div>
+                  <div className="drawer-formatting-row" style={{ marginTop: 4 }}>
+                    <select
+                      className="input sm"
+                      style={{ width: "100%" }}
+                      title="Column widths"
+                      value={currentColumnWidths ?? "equal"}
+                      onChange={(e) => {
+                        const val = e.target.value === "equal" ? null : e.target.value;
+                        editorApiRef.current?.setColumnWidths?.(val);
+                      }}
+                    >
+                      <option value="equal">Equal widths</option>
+                      {currentColumnCount === 2 && <option value="2:1">Wide + Narrow (2:1)</option>}
+                      {currentColumnCount === 2 && <option value="1:2">Narrow + Wide (1:2)</option>}
+                      {currentColumnCount === 3 && <option value="1:1:1">Equal (1:1:1)</option>}
+                      {currentColumnCount === 3 && <option value="1:2:1">Narrow-Wide-Narrow (1:2:1)</option>}
+                      {currentColumnCount === 3 && <option value="2:1:1">Wide-Narrow-Narrow (2:1:1)</option>}
+                      {currentColumnCount === 4 && <option value="1:1:1:1">Equal (1:1:1:1)</option>}
+                    </select>
+                  </div>
+                </>
+              )}
+              <div className="drawer-formatting-row" style={{ marginTop: 6 }}>
+                <button
+                  className="button subtle sm"
+                  title="Insert section break"
+                  onClick={() => editorApiRef.current?.insertSectionBreak?.()}
+                  style={{ width: "100%" }}
+                >
+                  Insert Section Break
+                </button>
+              </div>
             </div>
 
             {/* Clear Formatting */}
@@ -1747,7 +2550,7 @@ export default function EditorPage() {
         </aside>
 
         {/* Center Document */}
-        <div className="editor-center">
+        <div className="editor-center" id="main-content">
           <div
             className="editor-shell"
             style={{
@@ -1764,7 +2567,7 @@ export default function EditorPage() {
                   className="page-header"
                   style={{ height: `${layoutSettings.header.height || 15}mm` }}
                   dangerouslySetInnerHTML={{
-                    __html: layoutSettings.header.content || "",
+                    __html: sanitizeHtml(layoutSettings.header.content || ""),
                   }}
                 />
               )}
@@ -1780,7 +2583,7 @@ export default function EditorPage() {
                   {layoutSettings.footer.content && (
                     <span
                       dangerouslySetInnerHTML={{
-                        __html: layoutSettings.footer.content,
+                        __html: sanitizeHtml(layoutSettings.footer.content),
                       }}
                     />
                   )}
@@ -1796,10 +2599,10 @@ export default function EditorPage() {
 
           {/* Realtime status badge - floating at bottom of editor area */}
           <div className="realtime-status">
-            Realtime:{" "}
+            Yjs:{" "}
             {realtimeConnected
-              ? "connected ✅"
-              : "disconnected"}{" "}
+              ? "synced"
+              : "offline"}{" "}
             — room <code>doc-{docId}</code>
           </div>
         </div>
@@ -1814,40 +2617,154 @@ export default function EditorPage() {
         </button>
 
         {/* Right Drawer - All Panels */}
-        <aside className={`drawer-right ${rightDrawerOpen ? "is-open" : ""}`}>
-          <div className="drawer-tabs">
+        <aside
+          className={`drawer-right ${rightDrawerOpen ? "is-open" : ""}`}
+          aria-label="Document panels"
+          onTouchStart={handleDrawerTouchStart}
+          onTouchEnd={(e) => handleDrawerTouchEnd(e, () => setRightDrawerOpen(false))}
+        >
+          <div className="drawer-drag-handle" />
+          <div className="drawer-tabs" role="tablist" aria-label="Document panels" onKeyDown={(e) => {
+            const tabs = ["proofs","comments","versions","suggestions","backlinks","extraction","compliance","clauses","related","negotiations","attachments","reviewers"] as const;
+            const idx = tabs.indexOf(rightDrawerTab as typeof tabs[number]);
+            if (e.key === "ArrowRight") { e.preventDefault(); setRightDrawerTab(tabs[(idx + 1) % tabs.length]); }
+            if (e.key === "ArrowLeft") { e.preventDefault(); setRightDrawerTab(tabs[(idx - 1 + tabs.length) % tabs.length]); }
+          }}>
             <button
+              role="tab"
+              aria-selected={rightDrawerTab === "proofs"}
+              aria-controls="drawer-panel-proofs"
+              id="drawer-tab-proofs"
+              tabIndex={rightDrawerTab === "proofs" ? 0 : -1}
               className={`drawer-tab ${rightDrawerTab === "proofs" ? "active" : ""}`}
               onClick={() => setRightDrawerTab("proofs")}
             >
               Proofs
             </button>
             <button
+              role="tab"
+              aria-selected={rightDrawerTab === "comments"}
+              aria-controls="drawer-panel-comments"
+              id="drawer-tab-comments"
+              tabIndex={rightDrawerTab === "comments" ? 0 : -1}
               className={`drawer-tab ${rightDrawerTab === "comments" ? "active" : ""}`}
               onClick={() => setRightDrawerTab("comments")}
             >
               Comments
             </button>
             <button
+              role="tab"
+              aria-selected={rightDrawerTab === "versions"}
+              aria-controls="drawer-panel-versions"
+              id="drawer-tab-versions"
+              tabIndex={rightDrawerTab === "versions" ? 0 : -1}
               className={`drawer-tab ${rightDrawerTab === "versions" ? "active" : ""}`}
               onClick={() => setRightDrawerTab("versions")}
             >
               Versions
             </button>
             <button
+              role="tab"
+              aria-selected={rightDrawerTab === "suggestions"}
+              aria-controls="drawer-panel-suggestions"
+              id="drawer-tab-suggestions"
+              tabIndex={rightDrawerTab === "suggestions" ? 0 : -1}
               className={`drawer-tab ${rightDrawerTab === "suggestions" ? "active" : ""}`}
               onClick={() => setRightDrawerTab("suggestions")}
             >
               Suggest
             </button>
             <button
+              role="tab"
+              aria-selected={rightDrawerTab === "backlinks"}
+              aria-controls="drawer-panel-backlinks"
+              id="drawer-tab-backlinks"
+              tabIndex={rightDrawerTab === "backlinks" ? 0 : -1}
               className={`drawer-tab ${rightDrawerTab === "backlinks" ? "active" : ""}`}
               onClick={() => setRightDrawerTab("backlinks")}
             >
               Links
             </button>
+            <button
+              role="tab"
+              aria-selected={rightDrawerTab === "extraction"}
+              aria-controls="drawer-panel-extraction"
+              id="drawer-tab-extraction"
+              tabIndex={rightDrawerTab === "extraction" ? 0 : -1}
+              className={`drawer-tab ${rightDrawerTab === "extraction" ? "active" : ""}`}
+              onClick={() => setRightDrawerTab("extraction")}
+            >
+              Intel
+            </button>
+            <button
+              role="tab"
+              aria-selected={rightDrawerTab === "compliance"}
+              aria-controls="drawer-panel-compliance"
+              id="drawer-tab-compliance"
+              tabIndex={rightDrawerTab === "compliance" ? 0 : -1}
+              className={`drawer-tab ${rightDrawerTab === "compliance" ? "active" : ""}`}
+              onClick={() => setRightDrawerTab("compliance")}
+            >
+              Comply
+            </button>
+            <button
+              role="tab"
+              aria-selected={rightDrawerTab === "clauses"}
+              aria-controls="drawer-panel-clauses"
+              id="drawer-tab-clauses"
+              tabIndex={rightDrawerTab === "clauses" ? 0 : -1}
+              className={`drawer-tab ${rightDrawerTab === "clauses" ? "active" : ""}`}
+              onClick={() => setRightDrawerTab("clauses")}
+            >
+              Clauses
+            </button>
+            <button
+              role="tab"
+              aria-selected={rightDrawerTab === "related"}
+              aria-controls="drawer-panel-related"
+              id="drawer-tab-related"
+              tabIndex={rightDrawerTab === "related" ? 0 : -1}
+              className={`drawer-tab ${rightDrawerTab === "related" ? "active" : ""}`}
+              onClick={() => setRightDrawerTab("related")}
+            >
+              Related
+            </button>
+            <button
+              role="tab"
+              aria-selected={rightDrawerTab === "negotiations"}
+              aria-controls="drawer-panel-negotiations"
+              id="drawer-tab-negotiations"
+              tabIndex={rightDrawerTab === "negotiations" ? 0 : -1}
+              className={`drawer-tab ${rightDrawerTab === "negotiations" ? "active" : ""}`}
+              onClick={() => setRightDrawerTab("negotiations")}
+            >
+              Negotiate
+            </button>
+            <button
+              role="tab"
+              aria-selected={rightDrawerTab === "attachments"}
+              aria-controls="drawer-panel-attachments"
+              id="drawer-tab-attachments"
+              tabIndex={rightDrawerTab === "attachments" ? 0 : -1}
+              className={`drawer-tab ${rightDrawerTab === "attachments" ? "active" : ""}`}
+              onClick={() => setRightDrawerTab("attachments")}
+            >
+              Attach
+            </button>
+            <button
+              role="tab"
+              aria-selected={rightDrawerTab === "reviewers"}
+              aria-controls="drawer-panel-reviewers"
+              id="drawer-tab-reviewers"
+              tabIndex={rightDrawerTab === "reviewers" ? 0 : -1}
+              className={`drawer-tab ${rightDrawerTab === "reviewers" ? "active" : ""}`}
+              onClick={() => setRightDrawerTab("reviewers")}
+            >
+              Review
+            </button>
           </div>
-          <div className="drawer-content" style={{ padding: 0 }}>
+          <div className="drawer-content" style={{ padding: 0 }} role="tabpanel" id={`drawer-panel-${rightDrawerTab}`} aria-labelledby={`drawer-tab-${rightDrawerTab}`}>
+            <Suspense fallback={<PanelLoadingSpinner />}>
             {rightDrawerTab === "proofs" && (
               <ProofsPanel
                 docId={docId}
@@ -1897,15 +2814,153 @@ export default function EditorPage() {
                 onClose={() => setRightDrawerOpen(false)}
               />
             )}
+            {rightDrawerTab === "extraction" && (
+              <ExtractionPanel
+                docId={docId}
+                open={true}
+                onClose={() => setRightDrawerOpen(false)}
+                refreshKey={extractionRefreshKey}
+                currentUserId={userId}
+                embedded
+                onNavigateToProofs={() => {
+                  setRightDrawerTab("proofs");
+                  setProofsRefreshKey((k) => k + 1);
+                }}
+              />
+            )}
+            {rightDrawerTab === "compliance" && (
+              <CompliancePanel
+                docId={docId}
+                open={true}
+                onClose={() => setRightDrawerOpen(false)}
+                refreshKey={complianceRefreshKey}
+                currentUserId={userId}
+                embedded
+                onNavigateToProofs={() => {
+                  setRightDrawerTab("proofs");
+                  setProofsRefreshKey((k) => k + 1);
+                }}
+              />
+            )}
+            {rightDrawerTab === "clauses" && (
+              <ClauseLibraryPanel
+                docId={docId}
+                workspaceId={workspaceId}
+                open={true}
+                onClose={() => setRightDrawerOpen(false)}
+                refreshKey={clauseRefreshKey}
+                embedded
+                onInsert={handleInsertClause}
+              />
+            )}
+            {rightDrawerTab === "related" && (
+              <RelatedDocsPanel
+                docId={docId}
+                open={true}
+                onClose={() => setRightDrawerOpen(false)}
+                refreshKey={relatedRefreshKey}
+                embedded
+              />
+            )}
+            {rightDrawerTab === "negotiations" && (
+              <NegotiationPanel
+                docId={docId}
+                open={true}
+                onClose={() => setRightDrawerOpen(false)}
+                refreshKey={negotiationRefreshKey}
+                currentUserId={userId}
+                embedded
+                onNavigateToProofs={() => {
+                  setRightDrawerTab("proofs");
+                  setProofsRefreshKey((k) => k + 1);
+                }}
+                requestedAction={negotiationAction}
+                onActionHandled={() => setNegotiationAction(null)}
+              />
+            )}
+            {rightDrawerTab === "attachments" && (
+              <AttachmentPanel
+                docId={docId}
+                open={true}
+                onClose={() => setRightDrawerOpen(false)}
+                refreshKey={attachmentsRefreshKey}
+                currentUserId={userId}
+                workspaceId={workspaceId}
+                onViewAttachment={(att) => setViewingAttachment(att)}
+              />
+            )}
+            {rightDrawerTab === "reviewers" && (
+              <ReviewersPanel
+                docId={docId}
+                open={true}
+                onClose={() => setRightDrawerOpen(false)}
+                refreshKey={reviewersRefreshKey}
+                currentUserId={userId}
+                workspaceId={workspaceId}
+              />
+            )}
+            </Suspense>
           </div>
         </aside>
       </div>
+
+      {/* Attachment viewer modal (Slice 5) */}
+      {viewingAttachment && (
+        <AttachmentViewer
+          open={!!viewingAttachment}
+          attachment={viewingAttachment}
+          fileUrl={attachmentsApi.getFileUrl(docId, viewingAttachment.id)}
+          onClose={() => setViewingAttachment(null)}
+        />
+      )}
 
       <CommandPalette
         isOpen={isPalOpen}
         onClose={() => setPalOpen(false)}
         commands={commands}
       />
+
+      {/* Negotiation settlement flash notification (Slice 16) */}
+      {negotiationSettledFlash && (
+        <div className="negotiation-settled-flash">
+          Negotiation settled! Accepted changes are now available as suggestions.
+        </div>
+      )}
+
+      {/* Mobile navigation overlay — visible only on tablet/phone via CSS */}
+      {mobileNavOpen && (
+        <div className="mobile-nav-overlay" onClick={() => setMobileNavOpen(false)}>
+          <nav className="mobile-nav-menu" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-nav-header">
+              <span className="mobile-nav-title">Kacheri Docs</span>
+              <button className="button ghost sm" onClick={() => setMobileNavOpen(false)}>✕</button>
+            </div>
+            <button className="mobile-nav-item" onClick={() => { navigate("/"); setMobileNavOpen(false); }}>Documents</button>
+            <button className="mobile-nav-item" onClick={() => { navigate("/ai-watch"); setMobileNavOpen(false); }}>AI Watch</button>
+            <button className="mobile-nav-item" onClick={() => { navigate(`/workspaces/${workspaceId}/extraction-standards`); setMobileNavOpen(false); }}>Standards</button>
+            <button className="mobile-nav-item" onClick={() => { navigate(`/workspaces/${workspaceId}/compliance-policies`); setMobileNavOpen(false); }}>Compliance</button>
+            <button className="mobile-nav-item" onClick={() => { navigate(`/workspaces/${workspaceId}/clauses`); setMobileNavOpen(false); }}>Clauses</button>
+            <button className="mobile-nav-item" onClick={() => { navigate(`/workspaces/${workspaceId}/knowledge`); setMobileNavOpen(false); }}>Knowledge</button>
+            <button className="mobile-nav-item" onClick={() => { navigate(`/workspaces/${workspaceId}/negotiations`); setMobileNavOpen(false); }}>Negotiations</button>
+          </nav>
+        </div>
+      )}
+
+      {/* Mobile bottom tab bar — visible only on phone via CSS */}
+      <nav className="mobile-bottom-tabs">
+        <button className="mobile-bottom-tab" onClick={() => navigate("/")}>
+          <span className="mobile-bottom-tab-icon">📄</span>
+          <span className="mobile-bottom-tab-label">Documents</span>
+        </button>
+        <button className="mobile-bottom-tab mobile-bottom-tab-active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+          <span className="mobile-bottom-tab-icon">✏️</span>
+          <span className="mobile-bottom-tab-label">Editor</span>
+        </button>
+        <button className="mobile-bottom-tab" onClick={() => navigate("/ai-watch")}>
+          <span className="mobile-bottom-tab-icon">🔍</span>
+          <span className="mobile-bottom-tab-label">AI Watch</span>
+        </button>
+      </nav>
 
       {/* Find / Replace dialog */}
       <FindReplaceDialog
@@ -2164,6 +3219,189 @@ export default function EditorPage() {
         onApply={handleTranslateApply}
         docId={docId}
       />
+
+      {/* Original Source Modal - view imported source files */}
+      {importMeta && (
+        <OriginalSourceModal
+          open={originalSourceOpen}
+          importMeta={importMeta}
+          onClose={() => setOriginalSourceOpen(false)}
+        />
+      )}
+
+      {/* Save as Clause Dialog (Slice B10) */}
+      <SaveClauseDialog
+        open={saveClauseOpen}
+        onClose={() => setSaveClauseOpen(false)}
+        onSaved={(clause) => {
+          setSaveClauseOpen(false);
+          setClauseRefreshKey(k => k + 1);
+          alert(`Clause '${clause.title}' saved to library.`);
+        }}
+        workspaceId={workspaceId}
+        initialContentHtml={saveClauseHtml}
+        initialContentText={saveClauseText}
+      />
+
+      {/* AI Clause Suggestion Popover (Slice B12) */}
+      <ClauseSuggestionPopover
+        docId={docId}
+        workspaceId={workspaceId}
+        getSelectionText={() => editorApiRef.current?.getSelectionText?.() || ''}
+        onReplace={handleClauseSuggestionReplace}
+        hasClausesInWorkspace={hasWorkspaceClauses}
+      />
+
+      {/* Canvas Frame Picker (Slice P9) */}
+      {canvasPickerOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setCanvasPickerOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            zIndex: 9000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            className="canvas-picker-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: "12px",
+              width: "480px",
+              maxHeight: "70vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+            }}
+          >
+            <div
+              style={{
+                padding: "16px 20px",
+                borderBottom: "1px solid #e2e8f0",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span style={{ fontWeight: 600, fontSize: "15px" }}>
+                {canvasPickerSelectedCanvas ? "Select Frame" : "Select Canvas"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCanvasPickerOpen(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "18px",
+                  color: "#64748b",
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: "8px 0" }}>
+              {canvasPickerLoading && (
+                <div style={{ textAlign: "center", padding: "24px", color: "#64748b" }}>
+                  Loading…
+                </div>
+              )}
+              {!canvasPickerLoading && !canvasPickerSelectedCanvas && (
+                <>
+                  {canvasPickerList.length === 0 && (
+                    <div style={{ textAlign: "center", padding: "24px", color: "#94a3b8" }}>
+                      No canvases found in this workspace.
+                    </div>
+                  )}
+                  {canvasPickerList.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => selectCanvasForEmbed(c.id)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "10px 20px",
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        fontSize: "14px",
+                        borderBottom: "1px solid #f1f5f9",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+                    >
+                      <div style={{ fontWeight: 500 }}>{c.title || "Untitled Canvas"}</div>
+                      <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
+                        {c.id.slice(0, 8)}…
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
+              {!canvasPickerLoading && canvasPickerSelectedCanvas && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCanvasPickerSelectedCanvas(null);
+                      setCanvasPickerFrames([]);
+                    }}
+                    style={{
+                      display: "block",
+                      padding: "8px 20px",
+                      border: "none",
+                      background: "none",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      color: "#6366f1",
+                    }}
+                  >
+                    ← Back to canvases
+                  </button>
+                  {canvasPickerFrames.length === 0 && (
+                    <div style={{ textAlign: "center", padding: "24px", color: "#94a3b8" }}>
+                      No frames found in this canvas.
+                    </div>
+                  )}
+                  {canvasPickerFrames.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => insertCanvasFrame(canvasPickerSelectedCanvas, f.id)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "10px 20px",
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        fontSize: "14px",
+                        borderBottom: "1px solid #f1f5f9",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+                    >
+                      <div style={{ fontWeight: 500 }}>{f.title || "Untitled Frame"}</div>
+                      <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
+                        {f.id.slice(0, 8)}…
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Proof System Onboarding Modal (Phase 5 - P3.1) */}
       <ProofOnboardingModal

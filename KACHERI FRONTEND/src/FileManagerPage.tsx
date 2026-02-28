@@ -20,6 +20,10 @@ import ProofHealthBadge from "./components/ProofHealthBadge";
 import { WorkspaceSwitcher, useWorkspace, type Workspace } from "./workspace";
 import { WorkspaceSettingsModal } from "./components/workspace/WorkspaceSettingsModal";
 import { useAuth } from "./auth";
+import { canvasApi } from "./api/canvas";
+import type { Canvas } from "./types/canvas";
+import { isProductEnabled } from "./modules/registry";
+import { CanvasCard } from "./components/studio/CanvasCard";
 
 const ROOT_KEY = "root";
 
@@ -416,7 +420,9 @@ type PromptKind =
   | "delete-folder"
   | "remove-doc-link"
   | "delete-doc"
-  | "trash-doc";
+  | "trash-doc"
+  | "rename-canvas"
+  | "delete-canvas";
 
 type PromptState = {
   kind: PromptKind;
@@ -424,6 +430,7 @@ type PromptState = {
   parentId?: string | null;
   node?: FileNode;
   docId?: string;
+  canvasId?: string;
   currentTitle?: string;
 };
 
@@ -482,6 +489,12 @@ export default function FileManagerPage() {
 
   // Workspace Settings Modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // Canvas state (D5: Canvas Listing)
+  const [canvases, setCanvases] = useState<Canvas[]>([]);
+  const [canvasesLoading, setCanvasesLoading] = useState(false);
+  const [canvasesError, setCanvasesError] = useState<string | null>(null);
+  const studioEnabled = isProductEnabled('design-studio');
 
   const navigate = useNavigate();
 
@@ -549,6 +562,20 @@ export default function FileManagerPage() {
     }
   }
 
+  async function loadCanvases() {
+    if (!studioEnabled || !currentWorkspace) return;
+    setCanvasesLoading(true);
+    setCanvasesError(null);
+    try {
+      const res = await canvasApi.list(currentWorkspace.id);
+      setCanvases(res.canvases);
+    } catch (err: any) {
+      setCanvasesError(err?.message || "Failed to load canvases");
+    } finally {
+      setCanvasesLoading(false);
+    }
+  }
+
   async function restoreDoc(id: string) {
     try {
       await DocsAPI.restore(id);
@@ -591,6 +618,7 @@ export default function FileManagerPage() {
     void loadChildren(null);
     void loadAllDocs();
     void loadAiWatch();
+    void loadCanvases();
   }, []);
 
   // Load trash when panel is opened
@@ -698,6 +726,55 @@ export default function FileManagerPage() {
       docId: doc.id,
       currentTitle: doc.title ?? "Untitled",
     });
+  }
+
+  // ── Canvas actions (D5) ──
+
+  function renameCanvas(canvasId: string, currentTitle: string) {
+    setPromptError(null);
+    setPromptState({
+      kind: "rename-canvas",
+      mode: "prompt",
+      canvasId,
+      currentTitle,
+    });
+  }
+
+  function deleteCanvas(canvasId: string, title: string) {
+    setPromptError(null);
+    setPromptState({
+      kind: "delete-canvas",
+      mode: "confirm",
+      canvasId,
+      currentTitle: title,
+    });
+  }
+
+  async function duplicateCanvas(canvasId: string) {
+    if (!currentWorkspace) return;
+    const src = canvases.find((c) => c.id === canvasId);
+    if (!src) return;
+    try {
+      const dup = await canvasApi.create(currentWorkspace.id, {
+        title: `${src.title} (copy)`,
+        compositionMode: src.compositionMode,
+      });
+      setCanvases((prev) => [dup, ...prev]);
+    } catch (err: any) {
+      setCanvasesError(err?.message || "Failed to duplicate canvas");
+    }
+  }
+
+  async function createNewCanvas() {
+    if (!currentWorkspace) return;
+    try {
+      const created = await canvasApi.create(currentWorkspace.id, {
+        title: "Untitled Canvas",
+      });
+      navigate(`/workspaces/${currentWorkspace.id}/studio/${created.id}`);
+    } catch (err: any) {
+      setCanvasesError(err?.message || "Failed to create canvas");
+    }
   }
 
   /** Helper: compute which docs already appear in the tree. */
@@ -1063,6 +1140,22 @@ export default function FileManagerPage() {
           description: `Move "${promptState.currentTitle ?? "Untitled"}" to trash? You can restore it later from the Trash panel.`,
           confirmLabel: "Move to Trash",
         };
+      case "rename-canvas":
+        return {
+          mode: "prompt" as const,
+          title: "Rename canvas",
+          label: "Canvas title",
+          placeholder: "New canvas title",
+          defaultValue: promptState.currentTitle ?? "",
+          confirmLabel: "Rename",
+        };
+      case "delete-canvas":
+        return {
+          mode: "confirm" as const,
+          title: "Delete canvas?",
+          description: `Permanently delete "${promptState.currentTitle ?? "Untitled"}"? This cannot be undone.`,
+          confirmLabel: "Delete canvas",
+        };
       default:
         return null;
     }
@@ -1199,6 +1292,35 @@ export default function FileManagerPage() {
           setError(msg);
           setPromptError(msg);
         }
+      } else if (kind === "rename-canvas") {
+        const cid = promptState.canvasId!;
+        const next = (value ?? "").trim();
+        if (!next) {
+          setPromptError("Canvas title can't be empty.");
+          return;
+        }
+        if (next === promptState.currentTitle) {
+          closePrompt();
+          return;
+        }
+        try {
+          await canvasApi.update(currentWorkspace!.id, cid, { title: next });
+          setCanvases((prev) =>
+            prev.map((c) => (c.id === cid ? { ...c, title: next } : c))
+          );
+          closePrompt();
+        } catch (err: any) {
+          setPromptError(err?.message || "Failed to rename canvas");
+        }
+      } else if (kind === "delete-canvas") {
+        const cid = promptState.canvasId!;
+        try {
+          await canvasApi.delete(currentWorkspace!.id, cid);
+          setCanvases((prev) => prev.filter((c) => c.id !== cid));
+          closePrompt();
+        } catch (err: any) {
+          setPromptError(err?.message || "Failed to delete canvas");
+        }
       }
     } finally {
       finish();
@@ -1207,6 +1329,8 @@ export default function FileManagerPage() {
 
   return (
     <div
+      className="file-manager-page"
+      id="main-content"
       style={{
         minHeight: "100vh",
         padding: "32px 24px 40px",
@@ -1546,6 +1670,106 @@ export default function FileManagerPage() {
             </div>
           )}
         </section>
+
+        {/* ── Canvases Section (D5) ── */}
+        {studioEnabled && (
+          <section
+            style={{
+              marginTop: 18,
+              padding: "14px 16px",
+              borderRadius: 14,
+              background: "rgba(15,23,42,0.55)",
+              border: "1px solid rgba(148,163,184,0.12)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: 1,
+                    textTransform: "uppercase",
+                    color: "#9ca3af",
+                  }}
+                >
+                  Canvases
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    padding: "2px 7px",
+                    borderRadius: 999,
+                    background: "rgba(124,92,255,0.15)",
+                    color: "rgba(167,139,250,0.9)",
+                    fontWeight: 500,
+                  }}
+                >
+                  {canvases.length}
+                </span>
+              </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={createNewCanvas}
+                  style={{
+                    fontSize: 11,
+                    padding: "4px 12px",
+                    borderRadius: 999,
+                    border: "none",
+                    background: "linear-gradient(90deg,#4f46e5,#9333ea)",
+                    color: "#f9fafb",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                  }}
+                >
+                  + New Canvas
+                </button>
+              )}
+            </div>
+
+            {canvasesLoading && (
+              <div style={{ fontSize: 12, color: "#9ca3af", padding: "8px 0" }}>
+                Loading canvases…
+              </div>
+            )}
+
+            {canvasesError && (
+              <div style={{ fontSize: 12, color: "#fca5a5", padding: "8px 0" }}>
+                {canvasesError}
+              </div>
+            )}
+
+            {!canvasesLoading && !canvasesError && canvases.length === 0 && (
+              <div style={{ fontSize: 13, color: "#6b7280", padding: "12px 0", textAlign: "center" }}>
+                No canvases yet. Create your first canvas to get started.
+              </div>
+            )}
+
+            {!canvasesLoading && canvases.length > 0 && currentWorkspace && (
+              <div className="canvas-cards-grid">
+                {canvases.map((c) => (
+                  <CanvasCard
+                    key={c.id}
+                    canvas={c}
+                    workspaceId={currentWorkspace.id}
+                    canEdit={canEdit}
+                    onRename={renameCanvas}
+                    onDelete={deleteCanvas}
+                    onDuplicate={duplicateCanvas}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* AI Watch Footer */}
         <div

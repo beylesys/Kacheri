@@ -39,15 +39,17 @@ const ROOT_SENTINEL_ID = "root";
  * Each workspace gets its own root folder (workspace_id-scoped).
  * If workspaceId is null, returns the global unscoped root.
  */
-export function ensureRootFolderId(workspaceId?: string | null): number {
+export async function ensureRootFolderId(workspaceId?: string | null): Promise<number> {
   // Check for existing non-deleted root in this workspace
-  const existing = db
-    .prepare(
-      workspaceId
-        ? `SELECT id FROM fs_nodes WHERE parent_id IS NULL AND workspace_id = ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1`
-        : `SELECT id FROM fs_nodes WHERE parent_id IS NULL AND workspace_id IS NULL AND deleted_at IS NULL ORDER BY id ASC LIMIT 1`
-    )
-    .get(workspaceId ? workspaceId : undefined) as { id?: number } | undefined;
+  const existing = workspaceId
+    ? await db.queryOne<{ id?: number }>(
+        `SELECT id FROM fs_nodes WHERE parent_id IS NULL AND workspace_id = ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1`,
+        [workspaceId]
+      )
+    : await db.queryOne<{ id?: number }>(
+        `SELECT id FROM fs_nodes WHERE parent_id IS NULL AND workspace_id IS NULL AND deleted_at IS NULL ORDER BY id ASC LIMIT 1`,
+        []
+      );
 
   if (existing && typeof existing.id === "number") {
     return existing.id;
@@ -55,12 +57,12 @@ export function ensureRootFolderId(workspaceId?: string | null): number {
 
   // Create a new root folder for this workspace
   const now = new Date().toISOString();
-  const info = db
-    .prepare(
-      `INSERT INTO fs_nodes (parent_id, kind, name, doc_id, workspace_id, created_at, updated_at)
-       VALUES (NULL, 'folder', 'Root', NULL, @workspace_id, @created_at, @updated_at)`
-    )
-    .run({ workspace_id: workspaceId || null, created_at: now, updated_at: now });
+  const info = await db.run(
+    `INSERT INTO fs_nodes (parent_id, kind, name, doc_id, workspace_id, created_at, updated_at)
+     VALUES (NULL, 'folder', 'Root', NULL, ?, ?, ?)
+     RETURNING id`,
+    [workspaceId || null, now, now]
+  );
 
   return Number(info.lastInsertRowid || 0);
 }
@@ -81,25 +83,27 @@ function decodeId(id: string): number {
  * Convert a public parentId ("node-123" or "root" or null/undefined)
  * into the numeric id used in fs_nodes.parent_id.
  */
-function resolveParentNumericId(parentId?: string | null, workspaceId?: string | null): number {
+async function resolveParentNumericId(parentId?: string | null, workspaceId?: string | null): Promise<number> {
   if (!parentId || parentId === ROOT_SENTINEL_ID) {
     return ensureRootFolderId(workspaceId);
   }
   return decodeId(parentId);
 }
 
-function getNodeRowById(id: number, includeDeleted = false): FileNodeRow | null {
-  const row = db
-    .prepare(
-      includeDeleted
-        ? `SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at, deleted_at
-           FROM fs_nodes
-           WHERE id = ?`
-        : `SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at, deleted_at
-           FROM fs_nodes
-           WHERE id = ? AND deleted_at IS NULL`
-    )
-    .get(id) as FileNodeRow | undefined;
+async function getNodeRowById(id: number, includeDeleted = false): Promise<FileNodeRow | null> {
+  const row = includeDeleted
+    ? await db.queryOne<FileNodeRow>(
+        `SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at, deleted_at
+         FROM fs_nodes
+         WHERE id = ?`,
+        [id]
+      )
+    : await db.queryOne<FileNodeRow>(
+        `SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at, deleted_at
+         FROM fs_nodes
+         WHERE id = ? AND deleted_at IS NULL`,
+        [id]
+      );
 
   return row ?? null;
 }
@@ -107,19 +111,18 @@ function getNodeRowById(id: number, includeDeleted = false): FileNodeRow | null 
 /**
  * Given a set of node ids, return a map of "id -> number of direct non-deleted children".
  */
-function computeHasChildren(ids: number[]): Map<number, number> {
+async function computeHasChildren(ids: number[]): Promise<Map<number, number>> {
   const map = new Map<number, number>();
   if (!ids.length) return map;
 
   const placeholders = ids.map(() => "?").join(",");
-  const rows = db
-    .prepare(
-      `SELECT parent_id AS pid, COUNT(*) AS cnt
-       FROM fs_nodes
-       WHERE parent_id IN (${placeholders}) AND deleted_at IS NULL
-       GROUP BY parent_id`
-    )
-    .all(...ids) as Array<{ pid: number; cnt: number }>;
+  const rows = await db.queryAll<{ pid: number; cnt: number }>(
+    `SELECT parent_id AS pid, COUNT(*) AS cnt
+     FROM fs_nodes
+     WHERE parent_id IN (${placeholders}) AND deleted_at IS NULL
+     GROUP BY parent_id`,
+    ids
+  );
 
   for (const r of rows) {
     map.set(r.pid, r.cnt);
@@ -150,58 +153,51 @@ function rowToNode(
  * Now workspace-scoped.
  * Excludes doc nodes whose referenced doc is deleted (to prevent orphaned entries).
  */
-export function listChildren(parentId?: string | null, workspaceId?: string | null): FileNode[] {
-  const parentNumericId = resolveParentNumericId(parentId, workspaceId);
+export async function listChildren(parentId?: string | null, workspaceId?: string | null): Promise<FileNode[]> {
+  const parentNumericId = await resolveParentNumericId(parentId, workspaceId);
 
   // Use LEFT JOIN to filter out doc nodes whose referenced doc is deleted
-  const rows = db
-    .prepare(
-      `SELECT f.id, f.parent_id, f.kind, f.name, f.doc_id, f.workspace_id, f.created_at, f.updated_at, f.deleted_at
-       FROM fs_nodes f
-       LEFT JOIN docs d ON f.kind = 'doc' AND f.doc_id = d.id
-       WHERE f.parent_id = ? AND f.deleted_at IS NULL
-         AND (f.kind != 'doc' OR (d.id IS NOT NULL AND d.deleted_at IS NULL))
-       ORDER BY f.kind DESC, f.name COLLATE NOCASE ASC, f.id ASC`
-    )
-    .all(parentNumericId) as FileNodeRow[];
+  const rows = await db.queryAll<FileNodeRow>(
+    `SELECT f.id, f.parent_id, f.kind, f.name, f.doc_id, f.workspace_id, f.created_at, f.updated_at, f.deleted_at
+     FROM fs_nodes f
+     LEFT JOIN docs d ON f.kind = 'doc' AND f.doc_id = d.id
+     WHERE f.parent_id = ? AND f.deleted_at IS NULL
+       AND (f.kind != 'doc' OR (d.id IS NOT NULL AND d.deleted_at IS NULL))
+     ORDER BY f.kind DESC, f.name COLLATE NOCASE ASC, f.id ASC`,
+    [parentNumericId]
+  );
 
   if (!rows.length) return [];
 
   const ids = rows.map((r) => r.id);
-  const childCounts = computeHasChildren(ids);
+  const childCounts = await computeHasChildren(ids);
 
   return rows.map((r) => rowToNode(r, childCounts));
 }
 
 /** Create a folder under the given parent (or root, if omitted). */
-export function createFolder(opts: {
+export async function createFolder(opts: {
   parentId?: string | null;
   name: string;
   workspaceId?: string | null;
-}): FileNode {
-  const parentNumericId = resolveParentNumericId(opts.parentId, opts.workspaceId);
+}): Promise<FileNode> {
+  const parentNumericId = await resolveParentNumericId(opts.parentId, opts.workspaceId);
   const name = opts.name.trim();
   const now = new Date().toISOString();
 
-  const info = db
-    .prepare(
-      `INSERT INTO fs_nodes (parent_id, kind, name, doc_id, workspace_id, created_at, updated_at)
-       VALUES (@parent_id, 'folder', @name, NULL, @workspace_id, @created_at, @updated_at)`
-    )
-    .run({
-      parent_id: parentNumericId,
-      name,
-      workspace_id: opts.workspaceId || null,
-      created_at: now,
-      updated_at: now,
-    });
+  const info = await db.run(
+    `INSERT INTO fs_nodes (parent_id, kind, name, doc_id, workspace_id, created_at, updated_at)
+     VALUES (?, 'folder', ?, NULL, ?, ?, ?)
+     RETURNING id`,
+    [parentNumericId, name, opts.workspaceId || null, now, now]
+  );
 
   const id = Number(info.lastInsertRowid || 0);
-  const row = getNodeRowById(id);
+  const row = await getNodeRowById(id);
   if (!row) {
     throw new Error("Failed to read back created folder node");
   }
-  const childCounts = computeHasChildren([row.id]);
+  const childCounts = await computeHasChildren([row.id]);
   return rowToNode(row, childCounts);
 }
 
@@ -214,170 +210,158 @@ export function createFolder(opts: {
  * - If there is no doc node yet:
  *   - We create one under the given parentId, or under the root folder if parentId is omitted.
  */
-export function attachDocNode(
+export async function attachDocNode(
   docId: string,
   name: string,
   parentId?: string | null,
   workspaceId?: string | null
-): FileNode {
+): Promise<FileNode> {
   const now = new Date().toISOString();
   const trimmedName = name.trim();
 
-  const existing = db
-    .prepare(
-      `SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at
-       FROM fs_nodes
-       WHERE kind = 'doc' AND doc_id = ?
-       ORDER BY id ASC
-       LIMIT 1`
-    )
-    .get(docId) as FileNodeRow | undefined;
+  const existing = await db.queryOne<FileNodeRow>(
+    `SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at
+     FROM fs_nodes
+     WHERE kind = 'doc' AND doc_id = ?
+     ORDER BY id ASC
+     LIMIT 1`,
+    [docId]
+  );
 
   if (existing) {
     const parentNumericId =
       parentId === undefined
-        ? (existing.parent_id ?? ensureRootFolderId(workspaceId))
-        : resolveParentNumericId(parentId, workspaceId);
+        ? (existing.parent_id ?? await ensureRootFolderId(workspaceId))
+        : await resolveParentNumericId(parentId, workspaceId);
 
-    db.prepare(
+    await db.run(
       `UPDATE fs_nodes
-       SET parent_id = @parent_id, name = @name, workspace_id = @workspace_id, updated_at = @updated_at
-       WHERE id = @id`
-    ).run({
-      id: existing.id,
-      parent_id: parentNumericId,
-      name: trimmedName,
-      workspace_id: workspaceId || existing.workspace_id || null,
-      updated_at: now,
-    });
+       SET parent_id = ?, name = ?, workspace_id = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        parentNumericId,
+        trimmedName,
+        workspaceId || existing.workspace_id || null,
+        now,
+        existing.id,
+      ]
+    );
 
-    const row = getNodeRowById(existing.id);
+    const row = await getNodeRowById(existing.id);
     if (!row) throw new Error("Doc node disappeared after update");
-    const childCounts = computeHasChildren([row.id]);
+    const childCounts = await computeHasChildren([row.id]);
     return rowToNode(row, childCounts);
   }
 
   const parentNumericId =
     parentId === undefined
-      ? ensureRootFolderId(workspaceId)
-      : resolveParentNumericId(parentId, workspaceId);
+      ? await ensureRootFolderId(workspaceId)
+      : await resolveParentNumericId(parentId, workspaceId);
 
-  const info = db
-    .prepare(
-      `INSERT INTO fs_nodes (parent_id, kind, name, doc_id, workspace_id, created_at, updated_at)
-       VALUES (@parent_id, 'doc', @name, @doc_id, @workspace_id, @created_at, @updated_at)`
-    )
-    .run({
-      parent_id: parentNumericId,
-      name: trimmedName,
-      doc_id: docId,
-      workspace_id: workspaceId || null,
-      created_at: now,
-      updated_at: now,
-    });
+  const info = await db.run(
+    `INSERT INTO fs_nodes (parent_id, kind, name, doc_id, workspace_id, created_at, updated_at)
+     VALUES (?, 'doc', ?, ?, ?, ?, ?)
+     RETURNING id`,
+    [parentNumericId, trimmedName, docId, workspaceId || null, now, now]
+  );
 
   const id = Number(info.lastInsertRowid || 0);
-  const row = getNodeRowById(id);
+  const row = await getNodeRowById(id);
   if (!row) throw new Error("Failed to read back created doc node");
-  const childCounts = computeHasChildren([row.id]);
+  const childCounts = await computeHasChildren([row.id]);
   return rowToNode(row, childCounts);
 }
 
 /** Rename all nodes attached to a given doc id. */
-export function renameDocNode(docId: string, name: string): void {
+export async function renameDocNode(docId: string, name: string): Promise<void> {
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE fs_nodes
-     SET name = @name, updated_at = @updated_at
-     WHERE kind = 'doc' AND doc_id = @doc_id`
-  ).run({ name: name.trim(), updated_at: now, doc_id: docId });
+  await db.run(
+    `UPDATE fs_nodes SET name = ?, updated_at = ? WHERE kind = 'doc' AND doc_id = ?`,
+    [name.trim(), now, docId]
+  );
 }
 
 /** Remove any node(s) attached to the given doc id. */
-export function deleteDocNode(docId: string): void {
-  db.prepare(
-    `DELETE FROM fs_nodes
-     WHERE kind = 'doc' AND doc_id = ?`
-  ).run(docId);
+export async function deleteDocNode(docId: string): Promise<void> {
+  await db.run(
+    `DELETE FROM fs_nodes WHERE kind = 'doc' AND doc_id = ?`,
+    [docId]
+  );
 }
 
 /** Soft-delete any node(s) attached to the given doc id (move to trash). */
-export function softDeleteDocNodes(docId: string): void {
+export async function softDeleteDocNodes(docId: string): Promise<void> {
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE fs_nodes
-     SET deleted_at = @deleted_at, updated_at = @updated_at
-     WHERE kind = 'doc' AND doc_id = @doc_id AND deleted_at IS NULL`
-  ).run({ deleted_at: now, updated_at: now, doc_id: docId });
+  await db.run(
+    `UPDATE fs_nodes SET deleted_at = ?, updated_at = ? WHERE kind = 'doc' AND doc_id = ? AND deleted_at IS NULL`,
+    [now, now, docId]
+  );
 }
 
 /** Restore soft-deleted node(s) attached to the given doc id (restore from trash). */
-export function restoreDocNodes(docId: string): void {
+export async function restoreDocNodes(docId: string): Promise<void> {
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE fs_nodes
-     SET deleted_at = NULL, updated_at = @updated_at
-     WHERE kind = 'doc' AND doc_id = @doc_id AND deleted_at IS NOT NULL`
-  ).run({ updated_at: now, doc_id: docId });
+  await db.run(
+    `UPDATE fs_nodes SET deleted_at = NULL, updated_at = ? WHERE kind = 'doc' AND doc_id = ? AND deleted_at IS NOT NULL`,
+    [now, docId]
+  );
 }
 
 /** Permanently delete node(s) attached to the given doc id (only if already soft-deleted). */
-export function permanentDeleteDocNodes(docId: string): void {
-  db.prepare(
-    `DELETE FROM fs_nodes
-     WHERE kind = 'doc' AND doc_id = ? AND deleted_at IS NOT NULL`
-  ).run(docId);
+export async function permanentDeleteDocNodes(docId: string): Promise<void> {
+  await db.run(
+    `DELETE FROM fs_nodes WHERE kind = 'doc' AND doc_id = ? AND deleted_at IS NOT NULL`,
+    [docId]
+  );
 }
 
 /** Rename a node by id. Returns the updated node or null if not found. */
-export function renameNode(nodeId: string, name: string): FileNode | null {
+export async function renameNode(nodeId: string, name: string): Promise<FileNode | null> {
   const id = decodeId(nodeId);
   const now = new Date().toISOString();
 
-  const row = getNodeRowById(id);
+  const row = await getNodeRowById(id);
   if (!row) return null;
 
-  db.prepare(
-    `UPDATE fs_nodes
-     SET name = @name, updated_at = @updated_at
-     WHERE id = @id`
-  ).run({ id, name: name.trim(), updated_at: now });
+  await db.run(
+    `UPDATE fs_nodes SET name = ?, updated_at = ? WHERE id = ?`,
+    [name.trim(), now, id]
+  );
 
-  const updated = getNodeRowById(id);
+  const updated = await getNodeRowById(id);
   if (!updated) return null;
-  const childCounts = computeHasChildren([updated.id]);
+  const childCounts = await computeHasChildren([updated.id]);
   return rowToNode(updated, childCounts);
 }
 
 /** Move a node to a new parent. Returns the updated node or null if not found. */
-export function moveNode(
+export async function moveNode(
   nodeId: string,
   parentId: string | null,
   workspaceId?: string | null
-): FileNode | null {
+): Promise<FileNode | null> {
   const id = decodeId(nodeId);
   const parentNumericId = parentId
-    ? resolveParentNumericId(parentId, workspaceId)
-    : ensureRootFolderId(workspaceId);
+    ? await resolveParentNumericId(parentId, workspaceId)
+    : await ensureRootFolderId(workspaceId);
   const now = new Date().toISOString();
 
-  const row = getNodeRowById(id);
+  const row = await getNodeRowById(id);
   if (!row) return null;
 
   if (row.parent_id === parentNumericId) {
-    const childCounts = computeHasChildren([row.id]);
+    const childCounts = await computeHasChildren([row.id]);
     return rowToNode(row, childCounts);
   }
 
-  db.prepare(
-    `UPDATE fs_nodes
-     SET parent_id = @parent_id, updated_at = @updated_at
-     WHERE id = @id`
-  ).run({ id, parent_id: parentNumericId, updated_at: now });
+  await db.run(
+    `UPDATE fs_nodes SET parent_id = ?, updated_at = ? WHERE id = ?`,
+    [parentNumericId, now, id]
+  );
 
-  const updated = getNodeRowById(id);
+  const updated = await getNodeRowById(id);
   if (!updated) return null;
-  const childCounts = computeHasChildren([updated.id]);
+  const childCounts = await computeHasChildren([updated.id]);
   return rowToNode(updated, childCounts);
 }
 
@@ -390,12 +374,12 @@ export interface NodeWithChildCount {
   childCount: number;
 }
 
-export function getNodeWithChildCount(nodeId: string): NodeWithChildCount | null {
+export async function getNodeWithChildCount(nodeId: string): Promise<NodeWithChildCount | null> {
   const id = decodeId(nodeId);
-  const row = getNodeRowById(id);
+  const row = await getNodeRowById(id);
   if (!row) return null;
 
-  const childCounts = computeHasChildren([row.id]);
+  const childCounts = await computeHasChildren([row.id]);
   const node = rowToNode(row, childCounts);
   const childCount = childCounts.get(row.id) ?? 0;
 
@@ -410,16 +394,17 @@ export function getNodeWithChildCount(nodeId: string): NodeWithChildCount | null
  * NOTE: Callers that want to distinguish "not found" vs "folder not empty"
  * should use getNodeWithChildCount(...) first.
  */
-export function deleteNode(nodeId: string): boolean {
+export async function deleteNode(nodeId: string): Promise<boolean> {
   const id = decodeId(nodeId);
 
-  const row = getNodeRowById(id);
+  const row = await getNodeRowById(id);
   if (!row) return false;
 
   // Check for non-deleted children
-  const childCountRow = db
-    .prepare(`SELECT COUNT(*) AS c FROM fs_nodes WHERE parent_id = ? AND deleted_at IS NULL`)
-    .get(id) as { c?: number } | undefined;
+  const childCountRow = await db.queryOne<{ c?: number }>(
+    `SELECT COUNT(*) AS c FROM fs_nodes WHERE parent_id = ? AND deleted_at IS NULL`,
+    [id]
+  );
   const childCount = Number(childCountRow?.c || 0);
   if (childCount > 0) {
     // Safety guard: do not delete non-empty folders.
@@ -427,15 +412,10 @@ export function deleteNode(nodeId: string): boolean {
   }
 
   const now = Date.now();
-  const info = db.prepare(`
-    UPDATE fs_nodes
-    SET deleted_at = @deleted_at, updated_at = @updated_at
-    WHERE id = @id AND deleted_at IS NULL
-  `).run({
-    id,
-    deleted_at: now,
-    updated_at: new Date(now).toISOString(),
-  });
+  const info = await db.run(
+    `UPDATE fs_nodes SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+    [now, new Date(now).toISOString(), id]
+  );
 
   return Number(info.changes || 0) > 0;
 }
@@ -444,25 +424,21 @@ export function deleteNode(nodeId: string): boolean {
  * Restore a soft-deleted node from trash.
  * Returns the restored node, or null if not found or not deleted.
  */
-export function restoreNode(nodeId: string): FileNode | null {
+export async function restoreNode(nodeId: string): Promise<FileNode | null> {
   const id = decodeId(nodeId);
 
-  const row = getNodeRowById(id, true);  // include deleted
+  const row = await getNodeRowById(id, true);  // include deleted
   if (!row || !row.deleted_at) return null;
 
   const now = new Date().toISOString();
-  db.prepare(`
-    UPDATE fs_nodes
-    SET deleted_at = NULL, updated_at = @updated_at
-    WHERE id = @id
-  `).run({
-    id,
-    updated_at: now,
-  });
+  await db.run(
+    `UPDATE fs_nodes SET deleted_at = NULL, updated_at = ? WHERE id = ?`,
+    [now, id]
+  );
 
-  const updated = getNodeRowById(id);
+  const updated = await getNodeRowById(id);
   if (!updated) return null;
-  const childCounts = computeHasChildren([updated.id]);
+  const childCounts = await computeHasChildren([updated.id]);
   return rowToNode(updated, childCounts);
 }
 
@@ -471,12 +447,13 @@ export function restoreNode(nodeId: string): FileNode | null {
  * Only works on already soft-deleted nodes (in trash).
  * Returns true if permanently deleted, false if not found or not in trash.
  */
-export function permanentDeleteNode(nodeId: string): boolean {
+export async function permanentDeleteNode(nodeId: string): Promise<boolean> {
   const id = decodeId(nodeId);
 
-  const info = db.prepare(`
-    DELETE FROM fs_nodes WHERE id = ? AND deleted_at IS NOT NULL
-  `).run(id);
+  const info = await db.run(
+    `DELETE FROM fs_nodes WHERE id = ? AND deleted_at IS NOT NULL`,
+    [id]
+  );
 
   return (info.changes ?? 0) > 0;
 }
@@ -485,23 +462,25 @@ export function permanentDeleteNode(nodeId: string): boolean {
  * List soft-deleted nodes in trash, optionally filtered by workspace.
  * Excludes kind='doc' entries since those are shown via docs trash (to avoid duplicates).
  */
-export function listTrash(workspaceId?: string | null): TrashedFileNode[] {
+export async function listTrash(workspaceId?: string | null): Promise<TrashedFileNode[]> {
   let rows: FileNodeRow[];
 
   if (workspaceId) {
-    rows = db.prepare(`
-      SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at, deleted_at
-      FROM fs_nodes
-      WHERE workspace_id = ? AND deleted_at IS NOT NULL AND kind != 'doc'
-      ORDER BY deleted_at DESC
-    `).all(workspaceId) as FileNodeRow[];
+    rows = await db.queryAll<FileNodeRow>(
+      `SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at, deleted_at
+       FROM fs_nodes
+       WHERE workspace_id = ? AND deleted_at IS NOT NULL AND kind != 'doc'
+       ORDER BY deleted_at DESC`,
+      [workspaceId]
+    );
   } else {
-    rows = db.prepare(`
-      SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at, deleted_at
-      FROM fs_nodes
-      WHERE deleted_at IS NOT NULL AND kind != 'doc'
-      ORDER BY deleted_at DESC
-    `).all() as FileNodeRow[];
+    rows = await db.queryAll<FileNodeRow>(
+      `SELECT id, parent_id, kind, name, doc_id, workspace_id, created_at, updated_at, deleted_at
+       FROM fs_nodes
+       WHERE deleted_at IS NOT NULL AND kind != 'doc'
+       ORDER BY deleted_at DESC`,
+      []
+    );
   }
 
   // For trash items, we compute hasChildren differently (include deleted children)

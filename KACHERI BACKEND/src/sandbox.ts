@@ -13,12 +13,12 @@ export type SandboxResult = {
   notes: string[];
 };
 
-export function runSandboxedAiAction(params: {
+export async function runSandboxedAiAction(params: {
   docId: string;
   action: AiActionName;
   input: { text: string };
   provenanceId: number;
-}): SandboxResult {
+}): Promise<SandboxResult> {
   const started = Date.now();
   // Run the deterministic action
   const { output, notes } = runAiAction(params.action, params.input);
@@ -49,17 +49,14 @@ export function runSandboxedAiAction(params: {
     provenanceRef: params.provenanceId,
   };
 
-  // Persist proof packet to disk + DB
-  const proof = writeProofPacket({
+  // Persist proof packet to storage + DB
+  const proof = await writeProofPacket({
     docId: params.docId,
     relatedProvenanceId: params.provenanceId,
     type: "ai:action",
     filePath: null,
     payload: packet,
   });
-
-  // Also stash a copy under /data/proofs/doc-<id> (done by writeProofPacket)
-  ensureDir(repoPath("data/proofs", `doc-${params.docId}`));
 
   return {
     output,

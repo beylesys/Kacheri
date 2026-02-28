@@ -48,7 +48,7 @@ export default async function verificationReportRoutes(app: FastifyInstance) {
       status: req.query.status,
     };
 
-    const { reports, hasMore } = listReports(options);
+    const { reports, hasMore } = await listReports(options);
     return { reports, hasMore };
   });
 
@@ -59,7 +59,7 @@ export default async function verificationReportRoutes(app: FastifyInstance) {
     const userId = requireUser(req, reply);
     if (!userId) return;
 
-    const report = getLatestReport();
+    const report = await getLatestReport();
     if (!report) {
       return reply.code(404).send({ error: 'No verification reports found' });
     }
@@ -73,7 +73,7 @@ export default async function verificationReportRoutes(app: FastifyInstance) {
     const userId = requireUser(req, reply);
     if (!userId) return;
 
-    return getReportCounts();
+    return await getReportCounts();
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ export default async function verificationReportRoutes(app: FastifyInstance) {
     const { id } = req.params;
     const includeFull = req.query.full === 'true' || req.query.full === '1';
 
-    const report = includeFull ? getReportFull(id) : getReport(id);
+    const report = includeFull ? await getReportFull(id) : await getReport(id);
     if (!report) {
       return reply.code(404).send({ error: 'Report not found' });
     }
@@ -116,7 +116,7 @@ export default async function verificationReportRoutes(app: FastifyInstance) {
     }
 
     try {
-      const report = createReport({
+      const report = await createReport({
         status: body.status,
         exportsPass: body.exportsPass,
         exportsFail: body.exportsFail,
@@ -152,7 +152,7 @@ export default async function verificationReportRoutes(app: FastifyInstance) {
     // For now, any authenticated user can delete
 
     const { id } = req.params;
-    const deleted = deleteReport(id);
+    const deleted = await deleteReport(id);
 
     if (!deleted) {
       return reply.code(404).send({ error: 'Report not found' });
@@ -174,7 +174,7 @@ export default async function verificationReportRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'days must be a positive number' });
     }
 
-    const deleted = deleteReportsOlderThan(days);
+    const deleted = await deleteReportsOlderThan(days);
     return { deleted, retentionDays: days };
   });
 }

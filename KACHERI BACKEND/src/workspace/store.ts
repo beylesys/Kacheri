@@ -4,7 +4,7 @@
  * Data access layer for workspaces and memberships.
  */
 
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import { randomInt } from 'crypto';
 import type {
   Workspace,
@@ -26,24 +26,24 @@ function generateWorkspaceId(): string {
 
 export interface WorkspaceStore {
   // Workspace CRUD
-  create(input: CreateWorkspaceInput, createdBy: string): Workspace;
-  getById(id: string): Workspace | null;
-  update(id: string, input: UpdateWorkspaceInput): Workspace | null;
-  delete(id: string): boolean;
+  create(input: CreateWorkspaceInput, createdBy: string): Promise<Workspace>;
+  getById(id: string): Promise<Workspace | null>;
+  update(id: string, input: UpdateWorkspaceInput): Promise<Workspace | null>;
+  delete(id: string): Promise<boolean>;
 
   // Membership
-  addMember(workspaceId: string, userId: string, role: WorkspaceRole): WorkspaceMember;
-  removeMember(workspaceId: string, userId: string): boolean;
-  updateMemberRole(workspaceId: string, userId: string, role: WorkspaceRole): WorkspaceMember | null;
-  getMember(workspaceId: string, userId: string): WorkspaceMember | null;
-  listMembers(workspaceId: string): WorkspaceMember[];
+  addMember(workspaceId: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMember>;
+  removeMember(workspaceId: string, userId: string): Promise<boolean>;
+  updateMemberRole(workspaceId: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMember | null>;
+  getMember(workspaceId: string, userId: string): Promise<WorkspaceMember | null>;
+  listMembers(workspaceId: string): Promise<WorkspaceMember[]>;
 
   // User's workspaces
-  listForUser(userId: string): WorkspaceWithRole[];
-  getUserRole(workspaceId: string, userId: string): WorkspaceRole | null;
+  listForUser(userId: string): Promise<WorkspaceWithRole[]>;
+  getUserRole(workspaceId: string, userId: string): Promise<WorkspaceRole | null>;
 
   // Default workspace
-  getOrCreateDefault(userId: string): Workspace;
+  getOrCreateDefault(userId: string): Promise<Workspace>;
 }
 
 interface WorkspaceRow {
@@ -82,35 +82,26 @@ function rowToMember(row: MemberRow): WorkspaceMember {
   };
 }
 
-export function createWorkspaceStore(db: Database): WorkspaceStore {
+export function createWorkspaceStore(db: DbAdapter): WorkspaceStore {
   return {
-    create(input: CreateWorkspaceInput, createdBy: string): Workspace {
+    async create(input: CreateWorkspaceInput, createdBy: string): Promise<Workspace> {
       const id = generateWorkspaceId();
       const now = Date.now();
       const name = input.name.trim();
       const description = input.description?.trim() || null;
 
-      db.prepare(`
-        INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at)
-        VALUES (@id, @name, @description, @created_by, @created_at, @updated_at)
-      `).run({
-        id,
-        name,
-        description,
-        created_by: createdBy,
-        created_at: now,
-        updated_at: now,
-      });
+      await db.run(
+        `INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, name, description, createdBy, now, now]
+      );
 
       // Creator becomes owner
-      db.prepare(`
-        INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
-        VALUES (@workspace_id, @user_id, 'owner', @joined_at)
-      `).run({
-        workspace_id: id,
-        user_id: createdBy,
-        joined_at: now,
-      });
+      await db.run(
+        `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
+         VALUES (?, ?, 'owner', ?)`,
+        [id, createdBy, now]
+      );
 
       return {
         id,
@@ -122,18 +113,19 @@ export function createWorkspaceStore(db: Database): WorkspaceStore {
       };
     },
 
-    getById(id: string): Workspace | null {
-      const row = db.prepare(`
-        SELECT id, name, description, created_by, created_at, updated_at
-        FROM workspaces
-        WHERE id = ?
-      `).get(id) as WorkspaceRow | undefined;
+    async getById(id: string): Promise<Workspace | null> {
+      const row = await db.queryOne<WorkspaceRow>(
+        `SELECT id, name, description, created_by, created_at, updated_at
+         FROM workspaces
+         WHERE id = ?`,
+        [id]
+      );
 
       return row ? rowToWorkspace(row) : null;
     },
 
-    update(id: string, input: UpdateWorkspaceInput): Workspace | null {
-      const existing = this.getById(id);
+    async update(id: string, input: UpdateWorkspaceInput): Promise<Workspace | null> {
+      const existing = await this.getById(id);
       if (!existing) return null;
 
       const now = Date.now();
@@ -142,11 +134,12 @@ export function createWorkspaceStore(db: Database): WorkspaceStore {
         ? (input.description?.trim() || null)
         : existing.description;
 
-      db.prepare(`
-        UPDATE workspaces
-        SET name = @name, description = @description, updated_at = @updated_at
-        WHERE id = @id
-      `).run({ id, name, description, updated_at: now });
+      await db.run(
+        `UPDATE workspaces
+         SET name = ?, description = ?, updated_at = ?
+         WHERE id = ?`,
+        [name, description, now, id]
+      );
 
       return {
         ...existing,
@@ -156,31 +149,27 @@ export function createWorkspaceStore(db: Database): WorkspaceStore {
       };
     },
 
-    delete(id: string): boolean {
+    async delete(id: string): Promise<boolean> {
       // Delete members first (foreign key constraint)
-      db.prepare(`DELETE FROM workspace_members WHERE workspace_id = ?`).run(id);
-      const result = db.prepare(`DELETE FROM workspaces WHERE id = ?`).run(id);
+      await db.run(`DELETE FROM workspace_members WHERE workspace_id = ?`, [id]);
+      const result = await db.run(`DELETE FROM workspaces WHERE id = ?`, [id]);
       return (result.changes || 0) > 0;
     },
 
-    addMember(workspaceId: string, userId: string, role: WorkspaceRole): WorkspaceMember {
+    async addMember(workspaceId: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMember> {
       const now = Date.now();
 
       // Upsert: update if exists, insert if not
-      const existing = this.getMember(workspaceId, userId);
+      const existing = await this.getMember(workspaceId, userId);
       if (existing) {
-        return this.updateMemberRole(workspaceId, userId, role)!;
+        return (await this.updateMemberRole(workspaceId, userId, role))!;
       }
 
-      db.prepare(`
-        INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
-        VALUES (@workspace_id, @user_id, @role, @joined_at)
-      `).run({
-        workspace_id: workspaceId,
-        user_id: userId,
-        role,
-        joined_at: now,
-      });
+      await db.run(
+        `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
+         VALUES (?, ?, ?, ?)`,
+        [workspaceId, userId, role, now]
+      );
 
       return {
         workspaceId,
@@ -190,57 +179,62 @@ export function createWorkspaceStore(db: Database): WorkspaceStore {
       };
     },
 
-    removeMember(workspaceId: string, userId: string): boolean {
-      const result = db.prepare(`
-        DELETE FROM workspace_members
-        WHERE workspace_id = @workspace_id AND user_id = @user_id
-      `).run({ workspace_id: workspaceId, user_id: userId });
+    async removeMember(workspaceId: string, userId: string): Promise<boolean> {
+      const result = await db.run(
+        `DELETE FROM workspace_members
+         WHERE workspace_id = ? AND user_id = ?`,
+        [workspaceId, userId]
+      );
 
       return (result.changes || 0) > 0;
     },
 
-    updateMemberRole(workspaceId: string, userId: string, role: WorkspaceRole): WorkspaceMember | null {
-      const existing = this.getMember(workspaceId, userId);
+    async updateMemberRole(workspaceId: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMember | null> {
+      const existing = await this.getMember(workspaceId, userId);
       if (!existing) return null;
 
-      db.prepare(`
-        UPDATE workspace_members
-        SET role = @role
-        WHERE workspace_id = @workspace_id AND user_id = @user_id
-      `).run({ workspace_id: workspaceId, user_id: userId, role });
+      await db.run(
+        `UPDATE workspace_members
+         SET role = ?
+         WHERE workspace_id = ? AND user_id = ?`,
+        [role, workspaceId, userId]
+      );
 
       return { ...existing, role };
     },
 
-    getMember(workspaceId: string, userId: string): WorkspaceMember | null {
-      const row = db.prepare(`
-        SELECT workspace_id, user_id, role, joined_at
-        FROM workspace_members
-        WHERE workspace_id = @workspace_id AND user_id = @user_id
-      `).get({ workspace_id: workspaceId, user_id: userId }) as MemberRow | undefined;
+    async getMember(workspaceId: string, userId: string): Promise<WorkspaceMember | null> {
+      const row = await db.queryOne<MemberRow>(
+        `SELECT workspace_id, user_id, role, joined_at
+         FROM workspace_members
+         WHERE workspace_id = ? AND user_id = ?`,
+        [workspaceId, userId]
+      );
 
       return row ? rowToMember(row) : null;
     },
 
-    listMembers(workspaceId: string): WorkspaceMember[] {
-      const rows = db.prepare(`
-        SELECT workspace_id, user_id, role, joined_at
-        FROM workspace_members
-        WHERE workspace_id = ?
-        ORDER BY joined_at ASC
-      `).all(workspaceId) as MemberRow[];
+    async listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
+      const rows = await db.queryAll<MemberRow>(
+        `SELECT workspace_id, user_id, role, joined_at
+         FROM workspace_members
+         WHERE workspace_id = ?
+         ORDER BY joined_at ASC`,
+        [workspaceId]
+      );
 
       return rows.map(rowToMember);
     },
 
-    listForUser(userId: string): WorkspaceWithRole[] {
-      const rows = db.prepare(`
-        SELECT w.id, w.name, w.description, w.created_by, w.created_at, w.updated_at, m.role
-        FROM workspaces w
-        INNER JOIN workspace_members m ON w.id = m.workspace_id
-        WHERE m.user_id = ?
-        ORDER BY w.updated_at DESC
-      `).all(userId) as (WorkspaceRow & { role: string })[];
+    async listForUser(userId: string): Promise<WorkspaceWithRole[]> {
+      const rows = await db.queryAll<WorkspaceRow & { role: string }>(
+        `SELECT w.id, w.name, w.description, w.created_by, w.created_at, w.updated_at, m.role
+         FROM workspaces w
+         INNER JOIN workspace_members m ON w.id = m.workspace_id
+         WHERE m.user_id = ?
+         ORDER BY w.updated_at DESC`,
+        [userId]
+      );
 
       return rows.map((row) => ({
         ...rowToWorkspace(row),
@@ -248,14 +242,14 @@ export function createWorkspaceStore(db: Database): WorkspaceStore {
       }));
     },
 
-    getUserRole(workspaceId: string, userId: string): WorkspaceRole | null {
-      const member = this.getMember(workspaceId, userId);
+    async getUserRole(workspaceId: string, userId: string): Promise<WorkspaceRole | null> {
+      const member = await this.getMember(workspaceId, userId);
       return member?.role ?? null;
     },
 
-    getOrCreateDefault(userId: string): Workspace {
+    async getOrCreateDefault(userId: string): Promise<Workspace> {
       // Check if user has any workspace
-      const existing = this.listForUser(userId);
+      const existing = await this.listForUser(userId);
       if (existing.length > 0) {
         return existing[0]; // Return most recently updated
       }

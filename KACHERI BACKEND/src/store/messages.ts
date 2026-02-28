@@ -92,7 +92,7 @@ function rowToMessageMeta(row: MessageRow): MessageMeta {
 /**
  * Create a new message in a workspace.
  */
-export function createMessage(params: CreateMessageParams): MessageMeta | null {
+export async function createMessage(params: CreateMessageParams): Promise<MessageMeta | null> {
   const {
     workspaceId,
     authorId,
@@ -104,7 +104,7 @@ export function createMessage(params: CreateMessageParams): MessageMeta | null {
 
   // Validate replyToId if provided
   if (replyToId !== null) {
-    const parent = getMessageById(replyToId);
+    const parent = await getMessageById(replyToId);
     if (!parent || parent.workspaceId !== workspaceId) {
       console.error('[messages] Parent message not found or workspace mismatch:', replyToId);
       return null;
@@ -112,13 +112,15 @@ export function createMessage(params: CreateMessageParams): MessageMeta | null {
   }
 
   try {
-    const result = db.prepare(`
-      INSERT INTO messages (
+    const result = await db.run(
+      `INSERT INTO messages (
         workspace_id, author_id, content, reply_to_id,
         edited_at, created_at, deleted_at
       )
       VALUES (?, ?, ?, ?, NULL, ?, NULL)
-    `).run(workspaceId, authorId, content, replyToId, now);
+      RETURNING id`,
+      [workspaceId, authorId, content, replyToId, now]
+    );
 
     const messageId = result.lastInsertRowid as number;
     return getMessage(messageId);
@@ -131,15 +133,15 @@ export function createMessage(params: CreateMessageParams): MessageMeta | null {
 /**
  * Get a single message by ID (internal, returns raw Message).
  */
-function getMessageById(id: number): Message | null {
+async function getMessageById(id: number): Promise<Message | null> {
   try {
-    const row = db.prepare(`
-      SELECT id, workspace_id, author_id, content, reply_to_id,
-             edited_at, created_at, deleted_at
-      FROM messages
-      WHERE id = ?
-    `).get(id) as MessageRow | undefined;
-
+    const row = await db.queryOne<MessageRow>(
+      `SELECT id, workspace_id, author_id, content, reply_to_id,
+              edited_at, created_at, deleted_at
+       FROM messages
+       WHERE id = ?`,
+      [id]
+    );
     return row ? rowToMessage(row) : null;
   } catch (err) {
     console.error('[messages] Failed to get message by ID:', err);
@@ -150,15 +152,15 @@ function getMessageById(id: number): Message | null {
 /**
  * Get a single message by ID (API version).
  */
-export function getMessage(id: number): MessageMeta | null {
+export async function getMessage(id: number): Promise<MessageMeta | null> {
   try {
-    const row = db.prepare(`
-      SELECT id, workspace_id, author_id, content, reply_to_id,
-             edited_at, created_at, deleted_at
-      FROM messages
-      WHERE id = ? AND deleted_at IS NULL
-    `).get(id) as MessageRow | undefined;
-
+    const row = await db.queryOne<MessageRow>(
+      `SELECT id, workspace_id, author_id, content, reply_to_id,
+              edited_at, created_at, deleted_at
+       FROM messages
+       WHERE id = ? AND deleted_at IS NULL`,
+      [id]
+    );
     return row ? rowToMessageMeta(row) : null;
   } catch (err) {
     console.error('[messages] Failed to get message:', err);
@@ -171,10 +173,10 @@ export function getMessage(id: number): MessageMeta | null {
  * Returns messages in chronological order (oldest first).
  * Use `before` cursor to load older messages.
  */
-export function listMessages(
+export async function listMessages(
   workspaceId: string,
   options: ListMessagesOptions = {}
-): { messages: MessageMeta[]; hasMore: boolean } {
+): Promise<{ messages: MessageMeta[]; hasMore: boolean }> {
   const {
     limit = 50,
     before,
@@ -208,7 +210,7 @@ export function listMessages(
   params.push(effectiveLimit + 1); // Fetch one extra to check hasMore
 
   try {
-    const rows = db.prepare(query).all(...params) as MessageRow[];
+    const rows = await db.queryAll<MessageRow>(query, params);
 
     const hasMore = rows.length > effectiveLimit;
     const resultRows = hasMore ? rows.slice(0, effectiveLimit) : rows;
@@ -227,19 +229,20 @@ export function listMessages(
  * Update a message's content.
  * Only the author can update their own message.
  */
-export function updateMessage(
+export async function updateMessage(
   id: number,
   content: string,
   authorId: string
-): MessageMeta | null {
+): Promise<MessageMeta | null> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
-      UPDATE messages
-      SET content = ?, edited_at = ?
-      WHERE id = ? AND author_id = ? AND deleted_at IS NULL
-    `).run(content, now, id, authorId);
+    const info = await db.run(
+      `UPDATE messages
+       SET content = ?, edited_at = ?
+       WHERE id = ? AND author_id = ? AND deleted_at IS NULL`,
+      [content, now, id, authorId]
+    );
 
     if (info.changes === 0) {
       return null;
@@ -256,15 +259,16 @@ export function updateMessage(
  * Soft delete a message.
  * Only the author can delete their own message.
  */
-export function deleteMessage(id: number, authorId: string): boolean {
+export async function deleteMessage(id: number, authorId: string): Promise<boolean> {
   const now = Date.now();
 
   try {
-    const info = db.prepare(`
-      UPDATE messages
-      SET deleted_at = ?
-      WHERE id = ? AND author_id = ? AND deleted_at IS NULL
-    `).run(now, id, authorId);
+    const info = await db.run(
+      `UPDATE messages
+       SET deleted_at = ?
+       WHERE id = ? AND author_id = ? AND deleted_at IS NULL`,
+      [now, id, authorId]
+    );
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -276,15 +280,15 @@ export function deleteMessage(id: number, authorId: string): boolean {
 /**
  * Get message count for a workspace.
  */
-export function getMessageCount(workspaceId: string): number {
+export async function getMessageCount(workspaceId: string): Promise<number> {
   try {
-    const row = db.prepare(`
-      SELECT COUNT(*) as count
-      FROM messages
-      WHERE workspace_id = ? AND deleted_at IS NULL
-    `).get(workspaceId) as { count: number };
-
-    return row.count;
+    const row = await db.queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count
+       FROM messages
+       WHERE workspace_id = ? AND deleted_at IS NULL`,
+      [workspaceId]
+    );
+    return row?.count ?? 0;
   } catch (err) {
     console.error('[messages] Failed to get message count:', err);
     return 0;
@@ -295,13 +299,12 @@ export function getMessageCount(workspaceId: string): number {
  * Delete all messages for a workspace (permanent).
  * Used when a workspace is deleted.
  */
-export function deleteAllWorkspaceMessages(workspaceId: string): number {
+export async function deleteAllWorkspaceMessages(workspaceId: string): Promise<number> {
   try {
-    const info = db.prepare(`
-      DELETE FROM messages
-      WHERE workspace_id = ?
-    `).run(workspaceId);
-
+    const info = await db.run(
+      `DELETE FROM messages WHERE workspace_id = ?`,
+      [workspaceId]
+    );
     return info.changes ?? 0;
   } catch (err) {
     console.error('[messages] Failed to delete all workspace messages:', err);

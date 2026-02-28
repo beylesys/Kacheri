@@ -1,0 +1,417 @@
+/* BEYLE Platform — Settings Window Stylesheet (Slice S22)
+ *
+ * Dark theme matching BEYLE Platform error pages and KACHERI Frontend ui.css.
+ * Colors: bg #0f0f14, surface #1a1a24, text #e0e0e8, muted #a0a0b0,
+ * brand #7c5cff, error #ff5c5c, success #4caf50.
+ */
+
+/* ------------------------------------------------------------------ */
+/*  Reset & Base                                                       */
+/* ------------------------------------------------------------------ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  background: #0f0f14;
+  color: #e0e0e8;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-y: auto;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Layout                                                             */
+/* ------------------------------------------------------------------ */
+
+.settings-container {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 24px 20px 80px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.settings-header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e0e0e8;
+}
+
+.settings-header .version {
+  font-size: 11px;
+  color: #666;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sections                                                           */
+/* ------------------------------------------------------------------ */
+
+.settings-section {
+  background: #1a1a24;
+  border-radius: 8px;
+  border: 1px solid #2a2a3a;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.settings-section h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #a0a0b0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Form Controls                                                      */
+/* ------------------------------------------------------------------ */
+
+.field {
+  margin-bottom: 12px;
+}
+
+.field:last-child {
+  margin-bottom: 0;
+}
+
+.field label {
+  display: block;
+  font-size: 12px;
+  color: #a0a0b0;
+  margin-bottom: 4px;
+}
+
+.field input[type='text'],
+.field input[type='password'],
+.field input[type='url'],
+.field input[type='number'],
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  background: #0f0f14;
+  border: 1px solid #2a2a3a;
+  border-radius: 6px;
+  color: #e0e0e8;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: #7c5cff;
+}
+
+.field input:disabled,
+.field select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.field input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+.field input::placeholder {
+  color: #555;
+}
+
+/* Read-only value display */
+.field .value-display {
+  font-size: 13px;
+  color: #c0c0d0;
+  padding: 6px 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Inline validation indicator                                        */
+/* ------------------------------------------------------------------ */
+
+.url-validation {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  margin-top: 4px;
+  min-height: 18px;
+}
+
+.url-validation.reachable {
+  color: #4caf50;
+}
+
+.url-validation.unreachable {
+  color: #ff5c5c;
+}
+
+.url-validation.checking {
+  color: #a0a0b0;
+}
+
+.url-validation .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.url-validation.reachable .dot {
+  background: #4caf50;
+}
+
+.url-validation.unreachable .dot {
+  background: #ff5c5c;
+}
+
+.url-validation.checking .dot {
+  background: #a0a0b0;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Radio buttons                                                      */
+/* ------------------------------------------------------------------ */
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #e0e0e8;
+  cursor: pointer;
+}
+
+.radio-group input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #3a3a4a;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+
+.radio-group input[type='radio']:checked {
+  border-color: #7c5cff;
+}
+
+.radio-group input[type='radio']:checked::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7c5cff;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Checkboxes                                                         */
+/* ------------------------------------------------------------------ */
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.checkbox-field:last-child {
+  margin-bottom: 0;
+}
+
+.checkbox-field input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #3a3a4a;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.checkbox-field input[type='checkbox']:checked {
+  background: #7c5cff;
+  border-color: #7c5cff;
+}
+
+.checkbox-field input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.checkbox-field label {
+  font-size: 13px;
+  color: #e0e0e8;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Select dropdown                                                    */
+/* ------------------------------------------------------------------ */
+
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23666' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+}
+
+/* ------------------------------------------------------------------ */
+/*  PAT status badge                                                   */
+/* ------------------------------------------------------------------ */
+
+.pat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.pat-status.configured {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+}
+
+.pat-status.not-configured {
+  background: rgba(255, 92, 92, 0.15);
+  color: #ff5c5c;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sync status                                                        */
+/* ------------------------------------------------------------------ */
+
+.sync-status {
+  font-size: 11px;
+  color: #666;
+  margin-top: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Footer                                                             */
+/* ------------------------------------------------------------------ */
+
+.settings-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #0f0f14;
+  border-top: 1px solid #2a2a3a;
+}
+
+.footer-status {
+  font-size: 12px;
+  min-height: 18px;
+}
+
+.footer-status.success {
+  color: #4caf50;
+}
+
+.footer-status.error {
+  color: #ff5c5c;
+}
+
+.footer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Buttons                                                            */
+/* ------------------------------------------------------------------ */
+
+button {
+  padding: 7px 18px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #7c5cff;
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #6a4ae0;
+}
+
+.btn-secondary {
+  background: #2a2a3a;
+  color: #e0e0e8;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #3a3a4a;
+}
+
+.btn-small {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Conditional visibility                                             */
+/* ------------------------------------------------------------------ */
+
+.hidden {
+  display: none !important;
+}

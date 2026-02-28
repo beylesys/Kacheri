@@ -25,7 +25,7 @@ import TableHeader from "@tiptap/extension-table-header";
 import { ImageEnhanced, type ImageAlign } from "./extensions";
 
 // 📄 Document structure extensions
-import { PageBreak, SectionBreak, ColumnSection } from "./extensions";
+import { PageBreak, SectionBreak, ColumnSection, type ColumnGap, type ColumnRule } from "./extensions";
 
 // 📝 List extensions
 import { OrderedListEnhanced, type NumberingStyle } from "./extensions";
@@ -35,6 +35,10 @@ import { DocLink } from "./extensions";
 
 // 🌡️ AI heatmap extension (Phase 5 - P1.2)
 import { AIHeatmark } from "./extensions";
+
+// 🎨 Canvas frame embedding in Docs (Slice P9)
+import { CanvasEmbed } from "./extensions";
+import { isProductEnabled } from "./modules/registry";
 
 export type EditorApi = {
   getSelectionText(): string;
@@ -103,6 +107,10 @@ export type EditorApi = {
   wrapInColumns(columns?: number): void;
   unwrapColumns(): void;
   toggleColumns(columns?: number): void;
+  setColumnCount(columns: number): void;
+  setColumnGap(gap: ColumnGap): void;
+  setColumnRule(rule: ColumnRule): void;
+  setColumnWidths(widths: string | null): void;
 
   // List operations
   toggleBulletList(): void;
@@ -110,6 +118,7 @@ export type EditorApi = {
   sinkListItem(): void;
   liftListItem(): void;
   setNumberingStyle(style: NumberingStyle): void;
+  setStartFrom(value: number | null): void;
 
   // Doc link operations
   setDocLink(opts: { toDocId: string; toDocTitle?: string }): void;
@@ -122,7 +131,7 @@ export type EditorApi = {
 };
 
 // Re-export types for EditorPage
-export type { ImageAlign, NumberingStyle };
+export type { ImageAlign, NumberingStyle, ColumnGap, ColumnRule };
 
 type Props = { docId: string };
 
@@ -201,13 +210,17 @@ const Editor = forwardRef<EditorApi, Props>(function Editor({ docId }, ref) {
   // ---- Yjs doc + provider per doc ----
   const ydoc = useMemo(() => new Y.Doc(), [docId]);
   const serverUrl = useMemo(() => wsUrl(), []);
-  const provider = useMemo(
-    () =>
-      new WebsocketProvider(serverUrl, `doc-${docId}`, ydoc, {
-        connect: false,
-      }),
-    [serverUrl, docId, ydoc]
-  );
+  const provider = useMemo(() => {
+    // Include access token for WebSocket authentication (Slice 4)
+    const token =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("accessToken") || ""
+        : "";
+    return new WebsocketProvider(serverUrl, `doc-${docId}`, ydoc, {
+      connect: false,
+      params: token ? { token } : {},
+    });
+  }, [serverUrl, docId, ydoc]);
 
   // ---- Connection status badge ----
   const [connected, setConnected] = useState(false);
@@ -218,15 +231,47 @@ const Editor = forwardRef<EditorApi, Props>(function Editor({ docId }, ref) {
       setConnected(e.status === "connected");
     };
 
+    // Refresh token on disconnect so reconnections use a fresh token (Slice 4)
+    const onDisconnect = (e: { status: string }) => {
+      if (e.status === "disconnected") {
+        try {
+          const freshToken =
+            typeof localStorage !== "undefined"
+              ? localStorage.getItem("accessToken") || ""
+              : "";
+          if (freshToken) {
+            (provider as any).params = {
+              ...(provider as any).params,
+              token: freshToken,
+            };
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
     provider.on("status", onStatus);
+    provider.on("status", onDisconnect);
     const p: any = provider as any;
     if (typeof p.wsconnected === "boolean") {
       setConnected(p.wsconnected);
     }
-    provider.connect();
+
+    // Defer WebSocket connection until after first paint so the editor
+    // renders with local/IndexedDB state first, reducing time-to-interactive.
+    const connectId = typeof requestIdleCallback !== "undefined"
+      ? requestIdleCallback(() => provider.connect())
+      : (setTimeout(() => provider.connect(), 0) as unknown as number);
 
     return () => {
+      if (typeof cancelIdleCallback !== "undefined") {
+        cancelIdleCallback(connectId);
+      } else {
+        clearTimeout(connectId);
+      }
       provider.off("status", onStatus as any);
+      provider.off("status", onDisconnect as any);
       try {
         provider.disconnect();
       } catch {
@@ -297,6 +342,9 @@ const Editor = forwardRef<EditorApi, Props>(function Editor({ docId }, ref) {
       // AI heatmap highlighting (Phase 5 - P1.2)
       AIHeatmark,
 
+      // Canvas frame embedding (Slice P9) — only when Design Studio is enabled
+      ...(isProductEnabled("design-studio") ? [CanvasEmbed] : []),
+
       Collaboration.configure({ document: ydoc }),
       CollaborationCursor.configure({
         provider,
@@ -305,6 +353,10 @@ const Editor = forwardRef<EditorApi, Props>(function Editor({ docId }, ref) {
     ],
     autofocus: true,
     content: "",
+    // Perf: prevent React re-renders on every ProseMirror transaction.
+    // ProseMirror updates the DOM directly; React re-renders are unnecessary
+    // since this component only renders <EditorContent> and reads no editor state.
+    shouldRerenderOnTransaction: false,
     editorProps: {
       attributes: {
         style:
@@ -343,6 +395,10 @@ const Editor = forwardRef<EditorApi, Props>(function Editor({ docId }, ref) {
   // Focus caret once the editor is ready
   useEffect(() => {
     if (editor) editor.commands.focus("end");
+    // DEV-ONLY: expose for Playwright perf tests (tree-shaked in prod)
+    if (import.meta.env.DEV && editor) {
+      (window as any).__tiptapEditor = editor;
+    }
   }, [editor]);
 
   // ---- Imperative API exposed to parent ----
@@ -638,6 +694,26 @@ const Editor = forwardRef<EditorApi, Props>(function Editor({ docId }, ref) {
         editor.commands.toggleColumns(columns);
       },
 
+      setColumnCount(columns: number) {
+        if (!editor) return;
+        editor.commands.setColumnCount(columns);
+      },
+
+      setColumnGap(gap: ColumnGap) {
+        if (!editor) return;
+        editor.commands.setColumnGap(gap);
+      },
+
+      setColumnRule(rule: ColumnRule) {
+        if (!editor) return;
+        editor.commands.setColumnRule(rule);
+      },
+
+      setColumnWidths(widths: string | null) {
+        if (!editor) return;
+        editor.commands.setColumnWidths(widths);
+      },
+
       // List operations
       toggleBulletList() {
         if (!editor) return;
@@ -662,6 +738,11 @@ const Editor = forwardRef<EditorApi, Props>(function Editor({ docId }, ref) {
       setNumberingStyle(style) {
         if (!editor) return;
         (editor.commands as any).setNumberingStyle?.(style);
+      },
+
+      setStartFrom(value) {
+        if (!editor) return;
+        (editor.commands as any).setStartFrom?.(value);
       },
 
       // Doc link operations

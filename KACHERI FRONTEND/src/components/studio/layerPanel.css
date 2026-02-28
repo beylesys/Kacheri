@@ -1,0 +1,192 @@
+/* KACHERI FRONTEND/src/components/studio/layerPanel.css
+   MC4: Layer Panel — z-order management, visibility, lock control.
+   See: Docs/Roadmap/beyle-platform-shell-work-scope.md — Slice MC4
+*/
+
+/* ── Layer panel container (inline within Layers tab) ── */
+
+.layer-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.layer-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border, #2d2d3d);
+  flex-shrink: 0;
+}
+
+.layer-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text, #e2e8f0);
+}
+
+.layer-panel-empty {
+  padding: 24px 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted, #94a3b8);
+}
+
+/* ── Layer list ── */
+
+.layer-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.layer-panel-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.layer-panel-list::-webkit-scrollbar-thumb {
+  background: var(--border, #2d2d3d);
+  border-radius: 2px;
+}
+
+/* ── Individual layer item ── */
+
+.layer-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text, #e2e8f0);
+  transition: background 0.1s ease;
+  user-select: none;
+  border-left: 2px solid transparent;
+}
+
+.layer-panel-item:hover {
+  background: var(--surface, #252536);
+}
+
+.layer-panel-item.selected {
+  background: rgba(124, 92, 255, 0.12);
+  border-left-color: var(--brand-500, #7c5cff);
+}
+
+.layer-panel-item.hidden {
+  opacity: 0.4;
+}
+
+.layer-panel-item.locked .layer-panel-item-label {
+  font-style: italic;
+}
+
+.layer-panel-item.drag-over {
+  border-top: 2px solid var(--brand-500, #7c5cff);
+}
+
+/* ── Item parts ── */
+
+.layer-panel-item-icon {
+  width: 18px;
+  text-align: center;
+  font-size: 11px;
+  flex-shrink: 0;
+  color: var(--muted, #94a3b8);
+}
+
+.layer-panel-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.layer-panel-item-id {
+  font-size: 10px;
+  color: var(--muted, #94a3b8);
+  margin-left: 4px;
+}
+
+/* ── Action buttons (eye, lock) ── */
+
+.layer-panel-item-action {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--muted, #94a3b8);
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 12px;
+  flex-shrink: 0;
+  transition: color 0.1s ease, background 0.1s ease;
+  padding: 0;
+}
+
+.layer-panel-item-action:hover {
+  color: var(--text, #e2e8f0);
+  background: var(--surface, #252536);
+}
+
+.layer-panel-item-action.active {
+  color: var(--brand-500, #7c5cff);
+}
+
+/* ── Grid toolbar (above tab content in VisualCanvas) ── */
+
+.visual-canvas-grid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border, #2d2d3d);
+  flex-shrink: 0;
+}
+
+.visual-canvas-grid-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border, #2d2d3d);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.visual-canvas-grid-btn:hover {
+  color: var(--text, #e2e8f0);
+  border-color: var(--text, #e2e8f0);
+}
+
+.visual-canvas-grid-btn.active {
+  color: var(--brand-500, #7c5cff);
+  border-color: var(--brand-500, #7c5cff);
+  background: rgba(124, 92, 255, 0.08);
+}
+
+.visual-canvas-grid-select {
+  padding: 3px 6px;
+  font-size: 11px;
+  border: 1px solid var(--border, #2d2d3d);
+  border-radius: 3px;
+  background: var(--bg, #141422);
+  color: var(--text, #e2e8f0);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.visual-canvas-grid-select:focus {
+  outline: none;
+  border-color: var(--brand-500, #7c5cff);
+}

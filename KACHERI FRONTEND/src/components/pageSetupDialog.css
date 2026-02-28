@@ -270,6 +270,42 @@
   margin-top: 8px;
 }
 
+/* Advanced page numbering options */
+.page-setup-numbering-options {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.3);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.page-setup-numbering-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.page-setup-numbering-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 100px;
+}
+
+.page-setup-numbering-field .page-setup-select {
+  font-size: 0.8rem;
+  padding: 6px 10px;
+}
+
+.page-setup-numbering-field .page-setup-margin-input {
+  width: 100%;
+}
+
+.page-setup-numbering-reset {
+  margin-top: 10px;
+}
+
 .page-setup-disabled {
   opacity: 0.5;
   pointer-events: none;

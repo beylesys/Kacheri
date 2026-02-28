@@ -1,7 +1,7 @@
 // KACHERI FRONTEND/src/extensions/ImageNodeView.tsx
 // React NodeView for enhanced image with resize handles and caption
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 
 const MIN_WIDTH = 50;
@@ -16,8 +16,31 @@ export default function ImageNodeView({
 
   const imageRef = useRef<HTMLImageElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [_naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
+
+  // ---- Perf: Lazy image loading via IntersectionObserver ----
+  // Images stay as lightweight placeholders until they enter the viewport.
+  // One-way gate: once isInView is true, it stays true (no unloading).
+  const [isInView, setIsInView] = useState(false);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || isInView) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" } // Start loading 200px before viewport
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isInView]);
 
   // Track natural image dimensions for aspect ratio
   const handleImageLoad = useCallback(() => {
@@ -29,7 +52,7 @@ export default function ImageNodeView({
     }
   }, []);
 
-  // Resize handle logic
+  // Resize handle logic — Perf: throttled via requestAnimationFrame
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -43,22 +66,30 @@ export default function ImageNodeView({
 
       setIsResizing(true);
 
+      let rafId: number | null = null;
+
       const handleMouseMove = (moveEvent: MouseEvent) => {
-        const deltaX = moveEvent.clientX - startX;
-        let newWidth = startWidth + deltaX;
+        // Perf: skip if a frame is already queued — limits to ~60 updates/sec
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const deltaX = moveEvent.clientX - startX;
+          let newWidth = startWidth + deltaX;
 
-        // Clamp to min/max
-        newWidth = Math.max(MIN_WIDTH, newWidth);
-        newWidth = Math.min(containerWidth, newWidth);
+          // Clamp to min/max
+          newWidth = Math.max(MIN_WIDTH, newWidth);
+          newWidth = Math.min(containerWidth, newWidth);
 
-        // Convert to percentage for responsive behavior
-        const widthPercent = Math.round((newWidth / containerWidth) * 100);
-        const clampedPercent = Math.min(widthPercent, MAX_WIDTH_PERCENT);
+          // Convert to percentage for responsive behavior
+          const widthPercent = Math.round((newWidth / containerWidth) * 100);
+          const clampedPercent = Math.min(widthPercent, MAX_WIDTH_PERCENT);
 
-        updateAttributes({ width: `${clampedPercent}%` });
+          updateAttributes({ width: `${clampedPercent}%` });
+        });
       };
 
       const handleMouseUp = () => {
+        if (rafId !== null) cancelAnimationFrame(rafId);
         setIsResizing(false);
         document.removeEventListener("mousemove", handleMouseMove);
         document.removeEventListener("mouseup", handleMouseUp);
@@ -96,19 +127,30 @@ export default function ImageNodeView({
         data-align={align || "center"}
         ref={wrapperRef}
       >
-        <div className={`image-container ${selected ? "selected" : ""} ${isResizing ? "resizing" : ""}`}>
-          <img
-            ref={imageRef}
-            src={src}
-            alt={alt || ""}
-            title={title || ""}
-            style={{ width: width || "auto" }}
-            onLoad={handleImageLoad}
-            draggable={false}
-          />
+        <div
+          ref={sentinelRef}
+          className={`image-container ${selected ? "selected" : ""} ${isResizing ? "resizing" : ""}`}
+        >
+          {isInView ? (
+            <img
+              ref={imageRef}
+              src={src}
+              alt={alt || ""}
+              title={title || ""}
+              style={{ width: width || "auto" }}
+              loading="lazy"
+              onLoad={handleImageLoad}
+              draggable={false}
+            />
+          ) : (
+            <div
+              className="image-placeholder"
+              style={{ width: width || "300px", height: "200px" }}
+            />
+          )}
 
-          {/* Resize handle - only show when selected */}
-          {selected && (
+          {/* Resize handle - only show when selected and image is loaded */}
+          {selected && isInView && (
             <div
               className="image-resize-handle"
               onMouseDown={handleResizeStart}

@@ -7,6 +7,7 @@
 import { db } from "../db";
 import { getStorage } from "../storage";
 import { createLogger } from "./logger";
+import { config } from "../config";
 
 const log = createLogger("health");
 
@@ -23,6 +24,11 @@ export interface HealthStatus {
   timestamp: string;
   version: string;
   uptime: number;
+  // S16: Deployment topology fields
+  topology: {
+    mode: "cloud" | "local";
+    database: "postgresql" | "sqlite";
+  };
   checks: {
     database: HealthCheckResult;
     storage: HealthCheckResult;
@@ -44,8 +50,8 @@ async function checkDatabase(): Promise<HealthCheckResult> {
   const start = Date.now();
 
   try {
-    // Simple query to verify database is accessible
-    const result = db.prepare("SELECT 1 as ok").get() as { ok: number } | undefined;
+    // Simple query to verify database is accessible (works on both SQLite and PostgreSQL)
+    const result = await db.queryOne<{ ok: number }>("SELECT 1 as ok");
 
     if (result?.ok === 1) {
       return {
@@ -160,6 +166,11 @@ export async function getHealthStatus(): Promise<HealthStatus> {
     timestamp: new Date().toISOString(),
     version: SERVICE_VERSION,
     uptime: Math.floor((Date.now() - startTime) / 1000),
+    // S16: Topology fields — determined from DATABASE_URL scheme
+    topology: {
+      mode: config.topology.mode,
+      database: config.database.driver,
+    },
     checks,
   };
 }

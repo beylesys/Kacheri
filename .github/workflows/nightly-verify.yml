@@ -30,9 +30,17 @@ jobs:
         run: npm ci
 
       - name: Run nightly verification
-        run: npm run verify:nightly
+        run: npm run verify:nightly -- --notify
         env:
           NODE_ENV: production
+          KACHERI_VERIFY_SLACK_WEBHOOK: ${{ secrets.KACHERI_VERIFY_SLACK_WEBHOOK }}
+          KACHERI_VERIFY_EMAIL_TO: ${{ secrets.KACHERI_VERIFY_EMAIL_TO }}
+          KACHERI_SMTP_HOST: ${{ secrets.KACHERI_SMTP_HOST }}
+          KACHERI_SMTP_PORT: ${{ secrets.KACHERI_SMTP_PORT }}
+          KACHERI_SMTP_SECURE: ${{ secrets.KACHERI_SMTP_SECURE }}
+          KACHERI_SMTP_USER: ${{ secrets.KACHERI_SMTP_USER }}
+          KACHERI_SMTP_PASS: ${{ secrets.KACHERI_SMTP_PASS }}
+          KACHERI_SMTP_FROM: ${{ secrets.KACHERI_SMTP_FROM }}
 
       - name: Upload verification report
         uses: actions/upload-artifact@v4
@@ -41,25 +49,3 @@ jobs:
           name: nightly-report-${{ github.run_id }}
           path: ./KACHERI BACKEND/.reports/
           retention-days: 90
-
-      # Slack notification (uncomment when webhook is configured)
-      # - name: Notify Slack on failure
-      #   if: failure()
-      #   uses: slackapi/slack-github-action@v1.24.0
-      #   with:
-      #     payload: |
-      #       {
-      #         "text": "Nightly Verification Failed",
-      #         "blocks": [
-      #           {
-      #             "type": "section",
-      #             "text": {
-      #               "type": "mrkdwn",
-      #               "text": "*Nightly Verification Failed* :x:\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
-      #             }
-      #           }
-      #         ]
-      #       }
-      #   env:
-      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      #     SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

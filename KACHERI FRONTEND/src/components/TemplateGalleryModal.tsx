@@ -1,8 +1,9 @@
 // KACHERI FRONTEND/src/components/TemplateGalleryModal.tsx
 // Template Gallery Modal for creating documents from templates
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { templatesApi, type TemplateListItem } from '../api/templates';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import './templateGalleryModal.css';
 
 // Icon mapping for template types
@@ -44,6 +45,9 @@ export const TemplateGalleryModal: React.FC<TemplateGalleryModalProps> = ({
   onClose,
   onSelectTemplate,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +112,7 @@ export const TemplateGalleryModal: React.FC<TemplateGalleryModalProps> = ({
 
   return (
     <div
+      ref={dialogRef}
       className="template-gallery-backdrop"
       onMouseDown={handleBackdropClick}
       onKeyDown={handleKeyDown}

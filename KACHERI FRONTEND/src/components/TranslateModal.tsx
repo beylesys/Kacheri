@@ -1,8 +1,9 @@
 // TranslateModal.tsx — Modal for AI-powered text translation
 // Supports both selection and full-document translation with preview
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { AiAPI } from '../api';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import './translateModal.css';
 
 interface TranslateModalProps {
@@ -108,6 +109,19 @@ export function TranslateModal({
     onClose();
   }, [onClose]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, isOpen);
+
+  // Escape to close
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); handleClose(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isOpen, handleClose]);
+
   if (!isOpen) return null;
 
   const getLanguageLabel = (code: string) => {
@@ -116,13 +130,13 @@ export function TranslateModal({
   };
 
   return (
-    <div className="translate-modal-overlay" onClick={handleClose}>
+    <div className="translate-modal-overlay" onClick={handleClose} role="dialog" aria-modal="true" aria-labelledby="translate-title" ref={dialogRef}>
       <div className="translate-modal" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="translate-header">
-          <div className="translate-title">
+          <h2 className="translate-title" id="translate-title">
             Translate {isFullDocument ? 'Document' : 'Selection'}
-          </div>
+          </h2>
           <button className="translate-close" onClick={handleClose} title="Close">
             ×
           </button>

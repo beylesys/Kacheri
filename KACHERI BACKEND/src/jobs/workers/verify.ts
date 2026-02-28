@@ -15,7 +15,7 @@ export async function verifyExportJob(
 ): Promise<VerifyResult> {
   const { artifactId, hash, path } = job.payload;
 
-  const artifact = ArtifactsStore.getById(artifactId);
+  const artifact = await ArtifactsStore.getById(artifactId);
   if (!artifact) {
     return { status: "miss", message: "Artifact not found" };
   }
@@ -32,7 +32,7 @@ export async function verifyExportJob(
       try {
         fileBuffer = await fs.readFile(path);
       } catch {
-        ArtifactsStore.updateVerification(artifactId, "miss");
+        await ArtifactsStore.updateVerification(artifactId, "miss");
         return { status: "miss", message: "File not found in storage" };
       }
     }
@@ -45,10 +45,10 @@ export async function verifyExportJob(
 
     // Compare hashes
     if (computedHash === hash) {
-      ArtifactsStore.updateVerification(artifactId, "pass");
+      await ArtifactsStore.updateVerification(artifactId, "pass");
       return { status: "pass" };
     } else {
-      ArtifactsStore.updateVerification(artifactId, "fail");
+      await ArtifactsStore.updateVerification(artifactId, "fail");
       return {
         status: "fail",
         message: `Hash mismatch: expected ${hash}, got ${computedHash}`,
@@ -56,7 +56,7 @@ export async function verifyExportJob(
     }
   } catch (err) {
     const error = err as Error;
-    ArtifactsStore.updateVerification(artifactId, "fail");
+    await ArtifactsStore.updateVerification(artifactId, "fail");
     return { status: "fail", message: error.message };
   }
 }
@@ -67,7 +67,7 @@ export async function verifyComposeJob(
 ): Promise<VerifyResult> {
   const { artifactId } = job.payload;
 
-  const artifact = ArtifactsStore.getById(artifactId);
+  const artifact = await ArtifactsStore.getById(artifactId);
   if (!artifact) {
     return { status: "miss", message: "Artifact not found" };
   }
@@ -78,7 +78,7 @@ export async function verifyComposeJob(
 
     // Check if payload has required fields
     if (!payload.prompt || !payload.outputHash) {
-      ArtifactsStore.updateVerification(artifactId, "fail");
+      await ArtifactsStore.updateVerification(artifactId, "fail");
       return { status: "fail", message: "Invalid compose proof payload" };
     }
 
@@ -91,15 +91,15 @@ export async function verifyComposeJob(
 
     // Verify payload integrity
     if (artifact.hash && payloadHash !== artifact.hash) {
-      ArtifactsStore.updateVerification(artifactId, "fail");
+      await ArtifactsStore.updateVerification(artifactId, "fail");
       return { status: "fail", message: "Payload integrity check failed" };
     }
 
-    ArtifactsStore.updateVerification(artifactId, "pass");
+    await ArtifactsStore.updateVerification(artifactId, "pass");
     return { status: "pass" };
   } catch (err) {
     const error = err as Error;
-    ArtifactsStore.updateVerification(artifactId, "fail");
+    await ArtifactsStore.updateVerification(artifactId, "fail");
     return { status: "fail", message: error.message };
   }
 }

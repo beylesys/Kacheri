@@ -1,6 +1,6 @@
 // KACHERI FRONTEND/src/extensions/SectionBreak.ts
 // Section break extension for marking section boundaries
-// Future: can carry section-specific properties (headers, footers, orientation)
+// Carries section-specific properties (headers, footers, orientation)
 
 import { Node, mergeAttributes } from "@tiptap/core";
 
@@ -10,7 +10,12 @@ declare module "@tiptap/core" {
       /**
        * Insert a section break at the current position
        */
-      insertSectionBreak: (options?: { columns?: number }) => ReturnType;
+      insertSectionBreak: (options?: {
+        columns?: number;
+        headerHtml?: string;
+        footerHtml?: string;
+        firstPageDifferent?: boolean;
+      }) => ReturnType;
     };
   }
 }
@@ -24,7 +29,7 @@ export const SectionBreak = Node.create({
 
   addAttributes() {
     return {
-      // Column count for the following section (for future use)
+      // Column count for the following section
       columns: {
         default: 1,
         parseHTML: (element) =>
@@ -32,6 +37,36 @@ export const SectionBreak = Node.create({
         renderHTML: (attributes) => ({
           "data-columns": attributes.columns,
         }),
+      },
+      // Per-section header HTML content
+      headerHtml: {
+        default: "",
+        parseHTML: (element) =>
+          element.getAttribute("data-header-html") || "",
+        renderHTML: (attributes) => {
+          if (!attributes.headerHtml) return {};
+          return { "data-header-html": attributes.headerHtml };
+        },
+      },
+      // Per-section footer HTML content
+      footerHtml: {
+        default: "",
+        parseHTML: (element) =>
+          element.getAttribute("data-footer-html") || "",
+        renderHTML: (attributes) => {
+          if (!attributes.footerHtml) return {};
+          return { "data-footer-html": attributes.footerHtml };
+        },
+      },
+      // First-page-different header/footer option
+      firstPageDifferent: {
+        default: false,
+        parseHTML: (element) =>
+          element.getAttribute("data-first-page-different") === "true",
+        renderHTML: (attributes) => {
+          if (!attributes.firstPageDifferent) return {};
+          return { "data-first-page-different": "true" };
+        },
       },
     };
   },
@@ -60,7 +95,12 @@ export const SectionBreak = Node.create({
         ({ commands }) => {
           return commands.insertContent({
             type: this.name,
-            attrs: { columns: options.columns ?? 1 },
+            attrs: {
+              columns: options.columns ?? 1,
+              headerHtml: options.headerHtml ?? "",
+              footerHtml: options.footerHtml ?? "",
+              firstPageDifferent: options.firstPageDifferent ?? false,
+            },
           });
         },
     };

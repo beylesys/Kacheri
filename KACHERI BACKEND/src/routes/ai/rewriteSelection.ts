@@ -7,6 +7,10 @@ import { recordProof } from '../../provenanceStore';
 import { recordProvenance } from '../../provenance';
 import { AI_RATE_LIMITS } from '../../middleware/rateLimit';
 
+// Doc-level permission guard
+import { checkDocAccess } from '../../workspace/middleware';
+import { db } from '../../db';
+
 const normalizeId = (raw: string) => (raw?.startsWith('doc-') ? raw.slice(4) : raw);
 const readHdr = (req: any, name: string) =>
   (req.headers?.[name] as string | undefined)?.toString().trim() || undefined;
@@ -38,6 +42,9 @@ const plugin: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     async (req, reply) => {
     const rawId = (req.params?.id ?? '').toString();
     const docId = normalizeId(rawId);
+
+    // Doc-level permission check (editor+ required for AI operations)
+    if (!checkDocAccess(db, req, reply, docId, 'editor')) return;
 
     const {
       fullText,
@@ -155,6 +162,8 @@ const plugin: FastifyPluginAsync = async (fastify: FastifyInstance) => {
         docId,
         action: 'ai:rewriteSelection',
         actor: 'ai',
+        actorId: userId,
+        workspaceId: workspaceId ?? null,
         details: {
           selection: { start, end },
           instructions: cleanInstructions,
@@ -163,7 +172,6 @@ const plugin: FastifyPluginAsync = async (fastify: FastifyInstance) => {
           seed:     seed ?? null,
           proofHash: `sha256:${afterHash}`,
           proofId: proofRow?.id ?? null,
-          workspaceId: workspaceId ?? null,
           elapsedMs,
           fullTextLength,
           selectionLength,

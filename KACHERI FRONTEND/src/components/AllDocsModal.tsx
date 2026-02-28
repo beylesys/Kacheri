@@ -1,7 +1,8 @@
 // KACHERI FRONTEND/src/components/AllDocsModal.tsx
 // Modal for viewing all documents with orphan discovery and organization.
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import './allDocsModal.css';
 
 type DocMeta = {
@@ -34,6 +35,8 @@ export function AllDocsModal({
 }: Props) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'in-tree' | 'orphaned'>('all');
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
 
   // Reset state when modal opens
   useEffect(() => {
@@ -72,11 +75,11 @@ export function AllDocsModal({
   if (!open) return null;
 
   return (
-    <div className="all-docs-backdrop" onClick={onClose}>
+    <div className="all-docs-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="all-docs-title" ref={dialogRef}>
       <div className="all-docs-modal" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="all-docs-header">
-          <h2 className="all-docs-title">
+          <h2 className="all-docs-title" id="all-docs-title">
             All Documents ({allDocs.length})
             {orphanCount > 0 && (
               <span className="all-docs-orphan-badge">{orphanCount} orphaned</span>

@@ -1,5 +1,6 @@
 // KACHERI FRONTEND/src/components/DiffModal.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 type Props = {
   open: boolean;
@@ -20,6 +21,8 @@ export default function DiffModal({
 }: Props) {
   const [fontPx, setFontPx] = useState<number>(16);
   const [full, setFull] = useState<boolean>(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
 
   // prevent background scroll when open
   useEffect(() => {
@@ -40,7 +43,7 @@ export default function DiffModal({
       gap: 12,
       background: "#fff",
     }}>
-      <div style={{ fontWeight: 700, color: "#334155" }}>{title}</div>
+      <div id="diff-modal-title" style={{ fontWeight: 700, color: "#334155" }}>{title}</div>
       <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
         <button
           className="button subtle sm"
@@ -75,6 +78,8 @@ export default function DiffModal({
     <div
       role="dialog"
       aria-modal="true"
+      aria-labelledby="diff-modal-title"
+      ref={dialogRef}
       style={{
         position: "fixed",
         inset: 0,

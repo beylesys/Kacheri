@@ -1,0 +1,84 @@
+name: Performance Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'KACHERI FRONTEND/**'
+      - 'KACHERI BACKEND/**'
+
+  schedule:
+    # Run at 2:30 AM UTC daily (30 min after nightly-verify)
+    - cron: '30 2 * * *'
+
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Test suite: pr or nightly'
+        default: 'nightly'
+        type: choice
+        options:
+          - pr
+          - nightly
+
+jobs:
+  perf:
+    name: Big-Doc Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install backend dependencies
+        working-directory: ./KACHERI BACKEND
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: ./KACHERI FRONTEND
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: ./KACHERI FRONTEND
+        run: npx playwright install chromium --with-deps
+
+      - name: Run perf tests (PR — medium only)
+        if: github.event_name == 'pull_request'
+        working-directory: ./KACHERI FRONTEND
+        run: npm run test:perf:pr
+        env:
+          CI: 'true'
+          PERF_SUITE: pr
+          NODE_ENV: development
+
+      - name: Run perf tests (Nightly — all scenarios)
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        working-directory: ./KACHERI FRONTEND
+        run: npm run test:perf
+        env:
+          CI: 'true'
+          PERF_SUITE: ${{ github.event.inputs.suite || 'nightly' }}
+          NODE_ENV: development
+
+      - name: Upload perf report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-report-${{ github.run_id }}
+          path: ./KACHERI FRONTEND/perf-results/
+          retention-days: 90
+
+      - name: Upload Playwright traces (on failure)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces-${{ github.run_id }}
+          path: ./KACHERI FRONTEND/test-results/
+          retention-days: 30

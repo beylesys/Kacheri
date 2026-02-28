@@ -1,0 +1,277 @@
+/* KACHERI FRONTEND/src/components/studio/visualCanvas.css
+   Visual Mode panel — MC1: VisualCanvas + ElementPalette
+   See: Docs/Roadmap/beyle-platform-shell-work-scope.md — Slice MC1
+*/
+
+/* ── VisualCanvas (tab container) ── */
+
+.visual-canvas {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel, #1e1e2e);
+  color: var(--text, #e2e8f0);
+}
+
+.visual-canvas-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border, #2d2d3d);
+  flex-shrink: 0;
+}
+
+.visual-canvas-tab {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted, #94a3b8);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.visual-canvas-tab:hover {
+  color: var(--text, #e2e8f0);
+}
+
+.visual-canvas-tab.active {
+  color: var(--brand-500, #7c5cff);
+  border-bottom-color: var(--brand-500, #7c5cff);
+}
+
+.visual-canvas-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.visual-canvas-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.visual-canvas-content::-webkit-scrollbar-thumb {
+  background: var(--border, #2d2d3d);
+  border-radius: 2px;
+}
+
+/* ── MC4: Grid & Snap Toolbar ── */
+
+.grid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border, #2d2d3d);
+  background: var(--surface, #252536);
+  flex-shrink: 0;
+}
+
+.grid-toolbar-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border, #2d2d3d);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted, #94a3b8);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.grid-toolbar-btn:hover {
+  color: var(--text, #e2e8f0);
+  border-color: var(--text, #e2e8f0);
+}
+
+.grid-toolbar-btn.active {
+  color: var(--brand-500, #7c5cff);
+  border-color: var(--brand-500, #7c5cff);
+  background: rgba(124, 92, 255, 0.1);
+}
+
+.grid-toolbar-select {
+  padding: 4px 6px;
+  font-size: 11px;
+  border: 1px solid var(--border, #2d2d3d);
+  border-radius: 4px;
+  background: var(--bg, #141422);
+  color: var(--text, #e2e8f0);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.grid-toolbar-select:focus {
+  outline: none;
+  border-color: var(--brand-500, #7c5cff);
+}
+
+/* ── Element Palette ── */
+
+.element-palette {
+  padding: 4px 0;
+}
+
+.element-palette-section {
+  border-bottom: 1px solid var(--border, #2d2d3d);
+}
+
+.element-palette-section:last-child {
+  border-bottom: none;
+}
+
+.element-palette-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text, #e2e8f0);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: background 0.15s ease;
+}
+
+.element-palette-section-header:hover {
+  background: var(--surface, #252536);
+}
+
+.element-palette-section-arrow {
+  font-size: 8px;
+  color: var(--muted, #94a3b8);
+  width: 10px;
+  text-align: center;
+}
+
+.element-palette-section-body {
+  padding: 4px 14px 10px;
+}
+
+/* ── Frame creation grid ── */
+
+.element-palette-frame-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.element-palette-frame-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border: 1px dashed var(--border, #2d2d3d);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text, #e2e8f0);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.element-palette-frame-btn:hover {
+  border-color: var(--brand-500, #7c5cff);
+  background: rgba(124, 92, 255, 0.06);
+}
+
+.element-palette-frame-preview {
+  border: 1px solid var(--border, #2d2d3d);
+  border-radius: 2px;
+  background: var(--bg, #141422);
+}
+
+.ep-frame-16-9 { width: 64px; aspect-ratio: 16/9; }
+.ep-frame-4-3 { width: 56px; aspect-ratio: 4/3; }
+.ep-frame-a4-portrait { width: 40px; aspect-ratio: 210/297; }
+.ep-frame-a4-landscape { width: 64px; aspect-ratio: 297/210; }
+
+.element-palette-frame-label {
+  font-size: 10px;
+  color: var(--muted, #94a3b8);
+}
+
+/* ── Element item buttons ── */
+
+.element-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text, #e2e8f0);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.element-palette-item:hover:not(:disabled) {
+  background: var(--surface, #252536);
+}
+
+.element-palette-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.element-palette-item-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 4px;
+  background: var(--surface, #252536);
+  flex-shrink: 0;
+}
+
+.element-palette-item-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.element-palette-item-meta {
+  font-size: 10px;
+  color: var(--muted, #94a3b8);
+}
+
+/* ── Image URL form ── */
+
+.element-palette-image-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--surface, #252536);
+  border-radius: 4px;
+}
+
+.element-palette-image-form input {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border, #2d2d3d);
+  border-radius: 4px;
+  background: var(--bg, #141422);
+  color: var(--text, #e2e8f0);
+}
+
+.element-palette-image-form input::placeholder {
+  color: var(--muted, #94a3b8);
+}
+
+.element-palette-image-form input:focus {
+  outline: none;
+  border-color: var(--brand-500, #7c5cff);
+}

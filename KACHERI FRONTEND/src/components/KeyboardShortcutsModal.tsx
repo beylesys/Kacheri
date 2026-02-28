@@ -1,7 +1,8 @@
 // KACHERI FRONTEND/src/components/KeyboardShortcutsModal.tsx
 // Modal displaying all available keyboard shortcuts for discoverability
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import './keyboardShortcutsModal.css';
 
 type Props = {
@@ -68,6 +69,9 @@ const sections: ShortcutSection[] = [
 ];
 
 export function KeyboardShortcutsModal({ open, onClose }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
   // Escape to close
   useEffect(() => {
     if (!open) return;
@@ -86,10 +90,10 @@ export function KeyboardShortcutsModal({ open, onClose }: Props) {
   if (!open) return null;
 
   return (
-    <div className="shortcuts-modal-backdrop" onClick={onClose}>
+    <div className="shortcuts-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="keyboard-shortcuts-title" ref={dialogRef}>
       <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
         <div className="shortcuts-header">
-          <h2>Keyboard Shortcuts</h2>
+          <h2 id="keyboard-shortcuts-title">Keyboard Shortcuts</h2>
           <button className="shortcuts-close" onClick={onClose} title="Close">
             ×
           </button>

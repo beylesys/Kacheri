@@ -1,18 +1,16 @@
 // scripts/replay_exports.ts
-// Purpose: Read normalized proofs for exports and verify the on-disk artifact hash
-// matches the recorded hash. Reports PASS / FAIL / MISS.
+// Purpose: Read normalized proofs for exports and verify the artifact hash
+// matches the recorded hash. Resolves artifacts via storage client first,
+// falling back to legacy filesystem paths.
 // Usage:
 //   npx ts-node scripts/replay_exports.ts
 //   npx ts-node scripts/replay_exports.ts --doc=123abc
 //   npx ts-node scripts/replay_exports.ts --kind=docx
-//
-// Notes:
-// - Works for both 'docx' and 'pdf' proof rows (where present).  :contentReference[oaicite:4]{index=4}
 
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { db, repoPath } from '../src/db';
+import { readArtifactBuffer } from '../src/storage';
 
 type Flags = { doc?: string; kind?: string; verbose: boolean };
 function parseFlags(argv: string[]): Flags {
@@ -29,7 +27,13 @@ function sha256Hex(buf: Buffer) {
   return createHash('sha256').update(buf).digest('hex');
 }
 
-interface Row { doc_id: string; kind: string | null; hash: string | null; path: string | null; }
+interface Row {
+  doc_id: string;
+  kind: string | null;
+  hash: string | null;
+  path: string | null;
+  storage_key: string | null;
+}
 
 async function main() {
   const { doc: onlyDoc, kind, verbose } = parseFlags(process.argv);
@@ -39,7 +43,7 @@ async function main() {
 
   const placeholders = kinds.map(() => '?').join(',');
   const rows = db.prepare(`
-    SELECT doc_id, kind, hash, path
+    SELECT doc_id, kind, hash, path, storage_key
     FROM proofs
     WHERE kind IN (${placeholders})
       ${onlyDoc ? 'AND doc_id = ?' : ''}
@@ -52,27 +56,28 @@ async function main() {
   for (const r of rows) {
     const docId = r.doc_id;
     const expected = String(r.hash || '');
-    const absolute = r.path
-      ? r.path
-      : ''; // legacy entries without path → treat as MISS below
+    const absolute = r.path ? r.path : '';
 
     // Derive relative path for display
     const rel = absolute.startsWith(exportRoot) ? path.relative(exportRoot, absolute) : absolute;
+    const displayPath = r.storage_key || rel || '(no path)';
 
-    try {
-      if (!absolute) throw new Error('no path recorded');
-      const buf = await fs.readFile(absolute);
-      const actual = 'sha256:' + sha256Hex(buf);
-      if (actual === expected) {
-        pass++;
-        if (verbose) console.log(`PASS  doc-${docId}  ${r.kind}  ${rel}`);
-      } else {
-        fail++;
-        console.log(`FAIL  doc-${docId}  ${r.kind}  ${rel}\n  expected=${expected}\n  actual=${actual}`);
-      }
-    } catch {
+    // Storage-first read with filesystem fallback
+    const buf = await readArtifactBuffer(r.storage_key, absolute || null);
+
+    if (!buf) {
       miss++;
-      console.log(`MISS  doc-${docId}  ${r.kind}  ${rel || '(no path)'}  (file not found)`);
+      console.log(`MISS  doc-${docId}  ${r.kind}  ${displayPath}  (file not found)`);
+      continue;
+    }
+
+    const actual = 'sha256:' + sha256Hex(buf);
+    if (actual === expected) {
+      pass++;
+      if (verbose) console.log(`PASS  doc-${docId}  ${r.kind}  ${displayPath}`);
+    } else {
+      fail++;
+      console.log(`FAIL  doc-${docId}  ${r.kind}  ${displayPath}\n  expected=${expected}\n  actual=${actual}`);
     }
   }
 

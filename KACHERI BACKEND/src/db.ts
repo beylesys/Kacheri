@@ -1,29 +1,40 @@
 // KACHERI BACKEND/src/db.ts
+// S16: Database initialization — exports `db` as a unified DbAdapter.
+//
+// For SQLite (default / local mode):
+//   - better-sqlite3 Database is created synchronously at module load
+//   - All base tables and schema migrations run synchronously
+//   - SqliteAdapter wraps the initialized Database
+//
+// For PostgreSQL (cloud mode, when DATABASE_URL starts with 'postgres://'):
+//   - pg.Pool is created at module load (no queries issued yet)
+//   - Call `await initDb()` before the server starts listening (done in createApp())
+//   - initDb() runs base table creation and file-based migrations via AsyncMigrationRunner
+
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
-import { createMigrationRunner } from "./migrations/runner";
+import { config } from "./config";
+import { SqliteAdapter } from "./db/sqlite";
+import { PostgresAdapter } from "./db/postgres";
+import type { DbAdapter } from "./db/types";
+import { createMigrationRunner, AsyncMigrationRunner } from "./migrations/runner";
 
-function repoRoot(): string {
-  // We run the backend from: <repo>/KACHERI BACKEND
-  // So repo root is the parent folder.
-  return path.resolve(process.cwd(), "..");
+/* ─────────────────────────────────────────────────────────────────────────────
+ * SQLite helpers (sync — used only in the local/SQLite path)
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+function addColumnIfMissing(rawDb: Database.Database, table: string, column: string, type: string): void {
+  const cols = rawDb.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>;
+  const colNames = new Set(cols.map(c => c.name));
+  if (!colNames.has(column)) {
+    rawDb.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`).run();
+  }
 }
 
-const DB_PATH =
-  process.env.KACHERI_DB_PATH || path.resolve(repoRoot(), "data/db/kacheri.db");
-
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-
-export const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
-
-// Migration runner for P4.4
-const migrationsDir = path.resolve(process.cwd(), "migrations");
-export const migrationRunner = createMigrationRunner(db, migrationsDir);
-
-// Minimal auto-migrations (idempotent)
-db.exec(`
+function initSqliteBase(rawDb: Database.Database): void {
+  // Minimal auto-migrations (idempotent)
+  rawDb.exec(`
 CREATE TABLE IF NOT EXISTS schema_migrations(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -103,14 +114,13 @@ CREATE TABLE IF NOT EXISTS workspace_members (
 );
 CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON workspace_members (user_id);
 
--- Documents table (migrated from JSON file to SQLite for workspace scoping)
+-- Documents table
 CREATE TABLE IF NOT EXISTS docs (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  workspace_id TEXT,               -- NULL = unscoped (legacy), otherwise scoped to workspace
-  created_at INTEGER NOT NULL,     -- Unix timestamp ms
-  updated_at INTEGER NOT NULL      -- Unix timestamp ms
-  -- deleted_at added via migration below
+  workspace_id TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_docs_workspace ON docs(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_docs_updated ON docs(updated_at DESC);
@@ -119,18 +129,17 @@ CREATE INDEX IF NOT EXISTS idx_docs_updated ON docs(updated_at DESC);
 CREATE TABLE IF NOT EXISTS fs_nodes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   parent_id INTEGER,
-  kind TEXT NOT NULL,              -- 'folder' | 'doc'
+  kind TEXT NOT NULL,
   name TEXT NOT NULL,
-  doc_id TEXT,                     -- for kind='doc' links into docs registry
-  workspace_id TEXT,               -- NULL = unscoped (legacy), otherwise scoped to workspace
+  doc_id TEXT,
+  workspace_id TEXT,
   created_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   updated_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP)
-  -- deleted_at added via migration below
 );
 CREATE INDEX IF NOT EXISTS idx_fs_nodes_parent ON fs_nodes(parent_id);
 CREATE INDEX IF NOT EXISTS idx_fs_nodes_doc ON fs_nodes(doc_id);
 
--- Audit log table for tracking workspace activity
+-- Audit log table
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   workspace_id TEXT NOT NULL,
@@ -149,31 +158,31 @@ CREATE TABLE IF NOT EXISTS doc_permissions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
-  role TEXT NOT NULL,              -- owner | editor | commenter | viewer
-  granted_by TEXT NOT NULL,        -- user who granted this permission
-  granted_at INTEGER NOT NULL,     -- Unix timestamp ms
+  role TEXT NOT NULL,
+  granted_by TEXT NOT NULL,
+  granted_at INTEGER NOT NULL,
   UNIQUE(doc_id, user_id),
   FOREIGN KEY (doc_id) REFERENCES docs(id)
 );
 CREATE INDEX IF NOT EXISTS idx_doc_perms_doc ON doc_permissions(doc_id);
 CREATE INDEX IF NOT EXISTS idx_doc_perms_user ON doc_permissions(user_id);
 
--- Comments table for inline document comments
+-- Comments table
 CREATE TABLE IF NOT EXISTS comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id TEXT NOT NULL,
-  thread_id TEXT,                    -- NULL for root comments, thread ID for replies
-  parent_id INTEGER,                 -- NULL for root, parent comment ID for replies
+  thread_id TEXT,
+  parent_id INTEGER,
   author_id TEXT NOT NULL,
   content TEXT NOT NULL,
-  anchor_from INTEGER,               -- Plain text start position (nullable for doc-level)
-  anchor_to INTEGER,                 -- Plain text end position
-  anchor_text TEXT,                  -- Original anchored text (for display if moved)
-  resolved_at INTEGER,               -- NULL = unresolved, timestamp = resolved
-  resolved_by TEXT,                  -- User ID who resolved
+  anchor_from INTEGER,
+  anchor_to INTEGER,
+  anchor_text TEXT,
+  resolved_at INTEGER,
+  resolved_by TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  deleted_at INTEGER,                -- Soft delete
+  deleted_at INTEGER,
   FOREIGN KEY (doc_id) REFERENCES docs(id),
   FOREIGN KEY (parent_id) REFERENCES comments(id)
 );
@@ -181,7 +190,7 @@ CREATE INDEX IF NOT EXISTS idx_comments_doc ON comments(doc_id);
 CREATE INDEX IF NOT EXISTS idx_comments_thread ON comments(thread_id);
 CREATE INDEX IF NOT EXISTS idx_comments_deleted ON comments(deleted_at);
 
--- Comment mentions for @user notifications
+-- Comment mentions
 CREATE TABLE IF NOT EXISTS comment_mentions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   comment_id INTEGER NOT NULL,
@@ -211,7 +220,7 @@ CREATE TABLE IF NOT EXISTS doc_versions (
 CREATE INDEX IF NOT EXISTS idx_doc_versions_doc ON doc_versions(doc_id);
 CREATE INDEX IF NOT EXISTS idx_doc_versions_doc_num ON doc_versions(doc_id, version_number DESC);
 
--- Suggestions table for track changes mode
+-- Suggestions table
 CREATE TABLE IF NOT EXISTS suggestions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id TEXT NOT NULL,
@@ -233,7 +242,7 @@ CREATE INDEX IF NOT EXISTS idx_suggestions_doc ON suggestions(doc_id);
 CREATE INDEX IF NOT EXISTS idx_suggestions_doc_status ON suggestions(doc_id, status);
 CREATE INDEX IF NOT EXISTS idx_suggestions_author ON suggestions(author_id);
 
--- Cross-document links table (for doc-to-doc references)
+-- Cross-document links table
 CREATE TABLE IF NOT EXISTS doc_links (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   from_doc_id TEXT NOT NULL,
@@ -289,7 +298,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_ts ON notifications(user_id, c
 CREATE INDEX IF NOT EXISTS idx_notifications_workspace ON notifications(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_deleted ON notifications(deleted_at);
 
--- Message mentions for @user tracking
+-- Message mentions
 CREATE TABLE IF NOT EXISTS message_mentions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   message_id INTEGER NOT NULL,
@@ -300,7 +309,7 @@ CREATE TABLE IF NOT EXISTS message_mentions (
 CREATE INDEX IF NOT EXISTS idx_message_mentions_message ON message_mentions(message_id);
 CREATE INDEX IF NOT EXISTS idx_message_mentions_user ON message_mentions(user_id);
 
--- Workspace invites for member invite flow
+-- Workspace invites
 CREATE TABLE IF NOT EXISTS workspace_invites (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   workspace_id TEXT NOT NULL,
@@ -319,7 +328,7 @@ CREATE INDEX IF NOT EXISTS idx_invites_token ON workspace_invites(invite_token);
 CREATE INDEX IF NOT EXISTS idx_invites_workspace_status ON workspace_invites(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_invites_email ON workspace_invites(invited_email);
 
--- Verification reports for nightly verification runs (Phase 5)
+-- Verification reports
 CREATE TABLE IF NOT EXISTS verification_reports (
   id TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL,
@@ -337,35 +346,99 @@ CREATE INDEX IF NOT EXISTS idx_vr_created ON verification_reports(created_at DES
 CREATE INDEX IF NOT EXISTS idx_vr_status ON verification_reports(status);
 `);
 
-// Add workspace_id columns to existing tables if missing (migration for existing databases)
-function addColumnIfMissing(table: string, column: string, type: string) {
-  const cols = db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>;
-  const colNames = new Set(cols.map(c => c.name));
-  if (!colNames.has(column)) {
-    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`).run();
-  }
+  // Add workspace_id columns to existing tables if missing
+  addColumnIfMissing(rawDb, 'fs_nodes', 'workspace_id', 'TEXT');
+  rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_fs_nodes_workspace ON fs_nodes(workspace_id);`);
+
+  // Ensure deleted_at exists on docs and fs_nodes
+  addColumnIfMissing(rawDb, 'docs', 'deleted_at', 'INTEGER');
+  addColumnIfMissing(rawDb, 'fs_nodes', 'deleted_at', 'INTEGER');
+  rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_docs_deleted ON docs(deleted_at);`);
+  rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_fs_nodes_deleted ON fs_nodes(deleted_at);`);
+
+  // Add created_by column to docs
+  addColumnIfMissing(rawDb, 'docs', 'created_by', 'TEXT');
+
+  // Add layout_settings column to docs
+  addColumnIfMissing(rawDb, 'docs', 'layout_settings', 'TEXT');
+
+  // Add workspace_access column to docs
+  addColumnIfMissing(rawDb, 'docs', 'workspace_access', 'TEXT');
 }
 
-// Ensure workspace_id exists on fs_nodes (for existing databases)
-addColumnIfMissing('fs_nodes', 'workspace_id', 'TEXT');
-db.exec(`CREATE INDEX IF NOT EXISTS idx_fs_nodes_workspace ON fs_nodes(workspace_id);`);
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Path helpers (must be defined before createSqliteAdapter uses repoRoot)
+ * ─────────────────────────────────────────────────────────────────────────── */
 
-// Ensure deleted_at exists on docs and fs_nodes (for trash/recovery feature)
-addColumnIfMissing('docs', 'deleted_at', 'INTEGER');
-addColumnIfMissing('fs_nodes', 'deleted_at', 'INTEGER');
-db.exec(`CREATE INDEX IF NOT EXISTS idx_docs_deleted ON docs(deleted_at);`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_fs_nodes_deleted ON fs_nodes(deleted_at);`);
-
-// Add created_by column to docs (for doc ownership tracking in permissions)
-addColumnIfMissing('docs', 'created_by', 'TEXT');
-
-// Add layout_settings column to docs (for page layout configuration)
-addColumnIfMissing('docs', 'layout_settings', 'TEXT');
-
-// Add workspace_access column to docs (for workspace-wide share toggle)
-// Values: NULL (use workspace role) | 'none' | 'viewer' | 'commenter' | 'editor'
-addColumnIfMissing('docs', 'workspace_access', 'TEXT');
+function repoRoot(): string {
+  // We run the backend from: <repo>/KACHERI BACKEND
+  // So repo root is the parent folder.
+  return path.resolve(process.cwd(), "..");
+}
 
 export function repoPath(...parts: string[]) {
   return path.resolve(repoRoot(), ...parts);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Adapter creation
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+function createSqliteAdapter(): SqliteAdapter {
+  const DB_PATH =
+    process.env.KACHERI_DB_PATH ||
+    path.resolve(repoRoot(), "data/db/kacheri.db");
+
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+
+  const rawDb = new Database(DB_PATH);
+  rawDb.pragma("journal_mode = WAL");
+
+  // Initialize base schema (sync — must run before any store imports use db)
+  initSqliteBase(rawDb);
+
+  // Auto-run pending file-based migrations (idempotent).
+  const migrationsDir = path.resolve(process.cwd(), "migrations");
+  const runner = createMigrationRunner(rawDb, migrationsDir);
+  const result = runner.runAll();
+  if (result.applied.length > 0) {
+    console.log(`[db] Applied ${result.applied.length} migration(s):`, result.applied.join(', '));
+  }
+
+  return new SqliteAdapter(rawDb);
+}
+
+// ── The exported adapter (DbAdapter interface) ─────────────────────────────
+const _adapter: SqliteAdapter | PostgresAdapter =
+  config.database.driver === 'postgresql'
+    ? new PostgresAdapter(config.database.url)
+    : createSqliteAdapter();
+
+export const db: DbAdapter = _adapter;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * PostgreSQL async initialization
+ * Called by createApp() in server.ts before the server starts listening.
+ * No-op for SQLite (already initialized synchronously above).
+ * ─────────────────────────────────────────────────────────────────────────── */
+export async function initDb(): Promise<void> {
+  if (config.database.driver !== 'postgresql') return;
+
+  const migrationsDir = path.resolve(process.cwd(), "migrations");
+  const runner = new AsyncMigrationRunner(db, migrationsDir);
+  const result = await runner.runAll();
+  if (result.applied.length > 0) {
+    console.log(`[db] Applied ${result.applied.length} migration(s):`, result.applied.join(', '));
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Migration runner export (SQLite-only convenience for CLI scripts).
+ * PostgreSQL: use AsyncMigrationRunner from migrations/runner directly.
+ * ─────────────────────────────────────────────────────────────────────────── */
+const _migrationsDir = path.resolve(process.cwd(), "migrations");
+
+export const migrationRunner =
+  config.database.driver === 'sqlite'
+    ? createMigrationRunner((_adapter as SqliteAdapter).raw, _migrationsDir)
+    : null;

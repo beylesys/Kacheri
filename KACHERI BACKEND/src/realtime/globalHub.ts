@@ -42,6 +42,15 @@ export function wsBroadcast(workspaceId: string, msg: WorkspaceServerEvent): voi
   }
 }
 
+/** Safe canvas-scoped broadcast (no-op if hub not yet installed) — E8 */
+export function wsBroadcastToCanvas(workspaceId: string, canvasId: string, msg: WorkspaceServerEvent): void {
+  try {
+    _hub?.broadcastToCanvas(workspaceId, canvasId, msg);
+  } catch {
+    // swallow; keep server resilient
+  }
+}
+
 /** Broadcast to a specific user across all their workspace connections */
 export function broadcastToUser(userId: string, msg: WorkspaceServerEvent): void {
   if (!_hub) return;

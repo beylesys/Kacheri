@@ -5,11 +5,11 @@
  * 1. Checks maintenance mode
  * 2. Allows public routes through
  * 3. Handles dev mode bypass (X-Dev-User header)
- * 4. Validates JWT and attaches user to request
+ * 4. Validates bearer token: PAT (bpat_ prefix) or JWT
  */
 
 import type { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import { getAuthConfig } from './config';
 import { checkMaintenanceMode } from './maintenance';
 import { extractDevUser, logAuthDecision, hasDevUserHeader } from './devMode';
@@ -19,8 +19,9 @@ import {
   isAccessToken,
   type AccessTokenPayload,
 } from './jwt';
-import { createSessionStore } from './sessions';
-import { createUserStore } from './users';
+import { createSessionStore, hashToken } from './sessions';
+import { createUserStore, type UserStore } from './users';
+import { createPatStore, isPATToken } from './pat';
 
 // Routes that don't require authentication
 const PUBLIC_ROUTES = [
@@ -49,6 +50,11 @@ function isPublicRoute(url: string, method: string): boolean {
     }
   }
 
+  // Public embed routes — no auth required for published content (Slice E5)
+  if (path.startsWith('/embed/public/') || path.startsWith('/api/embed/public/')) {
+    return true;
+  }
+
   // OPTIONS requests for CORS
   if (method === 'OPTIONS') {
     return true;
@@ -57,13 +63,30 @@ function isPublicRoute(url: string, method: string): boolean {
   return false;
 }
 
+// In-memory cache for user status checks (avoids DB hit on every request)
+const userStatusCache = new Map<string, { status: string; cachedAt: number }>();
+const USER_STATUS_CACHE_TTL = 60; // seconds
+
+async function isUserActive(userStore: UserStore, userId: string): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const cached = userStatusCache.get(userId);
+  if (cached && (now - cached.cachedAt) < USER_STATUS_CACHE_TTL) {
+    return cached.status === 'active';
+  }
+  const user = await userStore.findById(userId);
+  const status = user?.status ?? 'deleted';
+  userStatusCache.set(userId, { status, cachedAt: now });
+  return status === 'active';
+}
+
 /**
  * Create the auth middleware hook
  */
-export function createAuthMiddleware(db: Database) {
+export function createAuthMiddleware(db: DbAdapter) {
   const config = getAuthConfig();
   const sessionStore = createSessionStore(db);
   const userStore = createUserStore(db);
+  const patStore = createPatStore(db);
 
   return async function authMiddleware(
     req: FastifyRequest,
@@ -82,25 +105,117 @@ export function createAuthMiddleware(db: Database) {
       const devUser = extractDevUser(req);
       if (devUser) {
         req.user = devUser;
+        req.userId = devUser.id;
+        // Overwrite client-supplied header with verified identity
+        req.headers['x-user-id'] = devUser.id;
         logAuthDecision(req, 'dev-bypass', `X-Dev-User: ${devUser.id}`);
         return;
       }
     }
 
-    // 4. Extract and validate JWT
+    // 4. Extract and validate bearer token (PAT or JWT)
     const authHeader = req.headers.authorization;
     const token = extractBearerToken(authHeader);
 
     if (token) {
+      // 4a. Check if this is a Personal Access Token (starts with bpat_)
+      if (isPATToken(token)) {
+        const tokenHash = hashToken(token);
+        const patRecord = await patStore.findByTokenHash(tokenHash);
+
+        if (patRecord) {
+          // Check not revoked
+          if (patRecord.revokedAt !== null) {
+            logAuthDecision(req, 'denied', `PAT ${patRecord.id} has been revoked`);
+            reply.status(401).send({
+              error: 'unauthorized',
+              message: 'Token has been revoked',
+            });
+            return;
+          }
+
+          // Check not expired
+          const now = Math.floor(Date.now() / 1000);
+          if (patRecord.expiresAt !== null && patRecord.expiresAt < now) {
+            logAuthDecision(req, 'denied', `PAT ${patRecord.id} has expired`);
+            reply.status(401).send({
+              error: 'unauthorized',
+              message: 'Token has expired',
+            });
+            return;
+          }
+
+          // Check user is still active
+          if (!await isUserActive(userStore, patRecord.userId)) {
+            logAuthDecision(req, 'denied', `PAT user ${patRecord.userId} is not active`);
+            reply.status(401).send({
+              error: 'unauthorized',
+              message: 'User account is not active',
+            });
+            return;
+          }
+
+          // Look up user details
+          const user = await userStore.findById(patRecord.userId);
+          if (!user) {
+            logAuthDecision(req, 'denied', `PAT user ${patRecord.userId} not found`);
+            reply.status(401).send({
+              error: 'unauthorized',
+              message: 'User not found',
+            });
+            return;
+          }
+
+          // Valid PAT — attach user to request
+          req.user = {
+            id: user.id,
+            email: user.email,
+            displayName: user.displayName,
+          };
+          req.userId = user.id;
+          req.headers['x-user-id'] = user.id;
+          req.patScopes = patRecord.scopes;
+          req.patWorkspaceId = patRecord.workspaceId;
+
+          // Update last_used_at (fire-and-forget)
+          try { void patStore.updateLastUsed(patRecord.id); } catch { /* non-fatal */ }
+
+          logAuthDecision(req, 'allowed', `PAT ${patRecord.id} for user ${user.id}`);
+          return;
+        }
+
+        // PAT format but not found in DB
+        logAuthDecision(req, 'denied', 'PAT not found');
+        reply.status(401).send({
+          error: 'unauthorized',
+          message: 'Invalid token',
+        });
+        return;
+      }
+
+      // 4b. Try JWT verification
       const payload = verifyToken<AccessTokenPayload>(token);
 
       if (payload && isAccessToken(payload)) {
+        // Check user is still active (cached, ~1ms overhead)
+        if (!await isUserActive(userStore, payload.sub)) {
+          logAuthDecision(req, 'denied', `User ${payload.sub} is not active`);
+          reply.status(401).send({
+            error: 'unauthorized',
+            message: 'User account is not active',
+          });
+          return;
+        }
+
         // Valid token - attach user to request
         req.user = {
           id: payload.sub,
           email: payload.email,
           displayName: payload.name,
         };
+        req.userId = payload.sub;
+        // Overwrite client-supplied header with verified identity
+        req.headers['x-user-id'] = payload.sub;
 
         logAuthDecision(req, 'allowed', `JWT valid for ${payload.sub}`);
         return;
@@ -138,6 +253,9 @@ export function createAuthMiddleware(db: Database) {
         email: 'anonymous@dev.local',
         displayName: 'Anonymous',
       };
+      req.userId = 'user_anonymous';
+      // Overwrite client-supplied header with verified identity
+      req.headers['x-user-id'] = 'user_anonymous';
       logAuthDecision(req, 'dev-bypass', 'No auth, dev mode permissive');
       return;
     }
@@ -154,7 +272,7 @@ export function createAuthMiddleware(db: Database) {
 /**
  * Register auth middleware as a Fastify plugin
  */
-export function registerAuthMiddleware(app: FastifyInstance, db: Database): void {
+export function registerAuthMiddleware(app: FastifyInstance, db: DbAdapter): void {
   const middleware = createAuthMiddleware(db);
 
   app.addHook('preHandler', middleware);

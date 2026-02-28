@@ -121,13 +121,13 @@ function computeSnapshotHash(snapshotHtml: string, snapshotText: string): string
  * Get the latest version number for a document.
  * Returns 0 if no versions exist.
  */
-export function getLatestVersionNumber(docId: string): number {
+export async function getLatestVersionNumber(docId: string): Promise<number> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<{ max_num: number | null }>(`
       SELECT MAX(version_number) as max_num
       FROM doc_versions
       WHERE doc_id = ?
-    `).get(docId) as { max_num: number | null } | undefined;
+    `, [docId]);
 
     return row?.max_num ?? 0;
   } catch (err) {
@@ -140,7 +140,7 @@ export function getLatestVersionNumber(docId: string): number {
  * Create a new version snapshot.
  * Version number auto-increments per document.
  */
-export function createVersion(params: CreateVersionParams): DocVersionMeta | null {
+export async function createVersion(params: CreateVersionParams): Promise<DocVersionMeta | null> {
   const {
     docId,
     name = null,
@@ -152,24 +152,25 @@ export function createVersion(params: CreateVersionParams): DocVersionMeta | nul
   } = params;
 
   const now = Date.now();
-  const versionNumber = getLatestVersionNumber(docId) + 1;
+  const versionNumber = (await getLatestVersionNumber(docId)) + 1;
   const snapshotHash = computeSnapshotHash(snapshotHtml, snapshotText);
   const metadataJson = metadata ? JSON.stringify(metadata) : null;
 
   try {
-    const result = db.prepare(`
+    const result = await db.run(`
       INSERT INTO doc_versions (
         doc_id, version_number, name, snapshot_html, snapshot_text,
         snapshot_hash, created_by, created_at, proof_id, metadata
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+      RETURNING id
+    `, [
       docId, versionNumber, name, snapshotHtml, snapshotText,
       snapshotHash, createdBy, now, proofId, metadataJson
-    );
+    ]);
 
     const versionId = result.lastInsertRowid as number;
-    return getVersionMeta(versionId);
+    return await getVersionMeta(versionId);
   } catch (err) {
     console.error('[versions] Failed to create version:', err);
     return null;
@@ -179,14 +180,14 @@ export function createVersion(params: CreateVersionParams): DocVersionMeta | nul
 /**
  * Get version metadata by ID.
  */
-export function getVersionMeta(versionId: number): DocVersionMeta | null {
+export async function getVersionMeta(versionId: number): Promise<DocVersionMeta | null> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<DocVersionRow>(`
       SELECT id, doc_id, version_number, name, snapshot_html, snapshot_text,
              snapshot_hash, created_by, created_at, proof_id, metadata
       FROM doc_versions
       WHERE id = ?
-    `).get(versionId) as DocVersionRow | undefined;
+    `, [versionId]);
 
     return row ? rowToVersionMeta(row) : null;
   } catch (err) {
@@ -198,14 +199,14 @@ export function getVersionMeta(versionId: number): DocVersionMeta | null {
 /**
  * Get full version with snapshot content.
  */
-export function getVersion(versionId: number): DocVersionFull | null {
+export async function getVersion(versionId: number): Promise<DocVersionFull | null> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<DocVersionRow>(`
       SELECT id, doc_id, version_number, name, snapshot_html, snapshot_text,
              snapshot_hash, created_by, created_at, proof_id, metadata
       FROM doc_versions
       WHERE id = ?
-    `).get(versionId) as DocVersionRow | undefined;
+    `, [versionId]);
 
     return row ? rowToVersionFull(row) : null;
   } catch (err) {
@@ -217,14 +218,14 @@ export function getVersion(versionId: number): DocVersionFull | null {
 /**
  * Get full version by document ID and version number.
  */
-export function getVersionByNumber(docId: string, versionNumber: number): DocVersionFull | null {
+export async function getVersionByNumber(docId: string, versionNumber: number): Promise<DocVersionFull | null> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<DocVersionRow>(`
       SELECT id, doc_id, version_number, name, snapshot_html, snapshot_text,
              snapshot_hash, created_by, created_at, proof_id, metadata
       FROM doc_versions
       WHERE doc_id = ? AND version_number = ?
-    `).get(docId, versionNumber) as DocVersionRow | undefined;
+    `, [docId, versionNumber]);
 
     return row ? rowToVersionFull(row) : null;
   } catch (err) {
@@ -236,21 +237,21 @@ export function getVersionByNumber(docId: string, versionNumber: number): DocVer
 /**
  * List all versions for a document (metadata only, no snapshots).
  */
-export function listVersions(
+export async function listVersions(
   docId: string,
   options?: { limit?: number; offset?: number }
-): DocVersionMeta[] {
+): Promise<DocVersionMeta[]> {
   const { limit = 100, offset = 0 } = options ?? {};
 
   try {
-    const rows = db.prepare(`
+    const rows = await db.queryAll<DocVersionRow>(`
       SELECT id, doc_id, version_number, name, snapshot_html, snapshot_text,
              snapshot_hash, created_by, created_at, proof_id, metadata
       FROM doc_versions
       WHERE doc_id = ?
       ORDER BY version_number DESC
       LIMIT ? OFFSET ?
-    `).all(docId, limit, offset) as DocVersionRow[];
+    `, [docId, limit, offset]);
 
     return rows.map(rowToVersionMeta);
   } catch (err) {
@@ -262,15 +263,15 @@ export function listVersions(
 /**
  * Get total version count for a document.
  */
-export function getVersionCount(docId: string): number {
+export async function getVersionCount(docId: string): Promise<number> {
   try {
-    const row = db.prepare(`
+    const row = await db.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count
       FROM doc_versions
       WHERE doc_id = ?
-    `).get(docId) as { count: number };
+    `, [docId]);
 
-    return row.count;
+    return row?.count ?? 0;
   } catch (err) {
     console.error('[versions] Failed to get version count:', err);
     return 0;
@@ -280,19 +281,19 @@ export function getVersionCount(docId: string): number {
 /**
  * Rename a version.
  */
-export function renameVersion(versionId: number, name: string | null): DocVersionMeta | null {
+export async function renameVersion(versionId: number, name: string | null): Promise<DocVersionMeta | null> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       UPDATE doc_versions
       SET name = ?
       WHERE id = ?
-    `).run(name, versionId);
+    `, [name, versionId]);
 
     if (info.changes === 0) {
       return null;
     }
 
-    return getVersionMeta(versionId);
+    return await getVersionMeta(versionId);
   } catch (err) {
     console.error('[versions] Failed to rename version:', err);
     return null;
@@ -302,12 +303,12 @@ export function renameVersion(versionId: number, name: string | null): DocVersio
 /**
  * Delete a version.
  */
-export function deleteVersion(versionId: number): boolean {
+export async function deleteVersion(versionId: number): Promise<boolean> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM doc_versions
       WHERE id = ?
-    `).run(versionId);
+    `, [versionId]);
 
     return (info.changes ?? 0) > 0;
   } catch (err) {
@@ -320,12 +321,12 @@ export function deleteVersion(versionId: number): boolean {
  * Delete all versions for a document.
  * Used when permanently deleting a document.
  */
-export function deleteAllDocVersions(docId: string): number {
+export async function deleteAllDocVersions(docId: string): Promise<number> {
   try {
-    const info = db.prepare(`
+    const info = await db.run(`
       DELETE FROM doc_versions
       WHERE doc_id = ?
-    `).run(docId);
+    `, [docId]);
 
     return info.changes ?? 0;
   } catch (err) {
@@ -341,13 +342,13 @@ export function deleteAllDocVersions(docId: string): number {
 /**
  * Compute a simple line-based diff between two versions.
  */
-export function diffVersions(
+export async function diffVersions(
   docId: string,
   fromVersionNum: number,
   toVersionNum: number
-): VersionDiff | null {
-  const fromVersion = getVersionByNumber(docId, fromVersionNum);
-  const toVersion = getVersionByNumber(docId, toVersionNum);
+): Promise<VersionDiff | null> {
+  const fromVersion = await getVersionByNumber(docId, fromVersionNum);
+  const toVersion = await getVersionByNumber(docId, toVersionNum);
 
   if (!fromVersion || !toVersion) {
     return null;

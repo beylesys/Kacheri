@@ -1,7 +1,8 @@
 // KACHERI FRONTEND/src/components/PageSetupDialog.tsx
 // Page Setup Dialog for document layout configuration
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import './pageSetupDialog.css';
 
 // Layout settings types (matches backend)
@@ -21,11 +22,18 @@ export interface HeaderSettings {
   height: number;
 }
 
+export type PageNumberFormat = 'decimal' | 'lowerRoman' | 'upperRoman' | 'lowerAlpha' | 'upperAlpha';
+export type PageNumberPosition = 'header-left' | 'header-center' | 'header-right' | 'footer-left' | 'footer-center' | 'footer-right';
+
 export interface FooterSettings {
   enabled: boolean;
   content: string;
   height: number;
   showPageNumbers: boolean;
+  pageNumberFormat?: PageNumberFormat;
+  pageNumberStartAt?: number;
+  pageNumberPosition?: PageNumberPosition;
+  sectionResetPageNumbers?: boolean;
 }
 
 export interface LayoutSettings {
@@ -70,6 +78,9 @@ export const PageSetupDialog: React.FC<PageSetupDialogProps> = ({
   onClose,
   onApply,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
   const [settings, setSettings] = useState<LayoutSettings>(
     initialSettings ?? DEFAULT_LAYOUT_SETTINGS
   );
@@ -140,6 +151,10 @@ export const PageSetupDialog: React.FC<PageSetupDialogProps> = ({
         content: prev.footer?.content ?? '',
         height: prev.footer?.height ?? 15,
         showPageNumbers: prev.footer?.showPageNumbers ?? true,
+        pageNumberFormat: prev.footer?.pageNumberFormat ?? 'decimal',
+        pageNumberPosition: prev.footer?.pageNumberPosition ?? 'footer-center',
+        pageNumberStartAt: prev.footer?.pageNumberStartAt,
+        sectionResetPageNumbers: prev.footer?.sectionResetPageNumbers ?? false,
         ...updates,
       },
     }));
@@ -154,6 +169,7 @@ export const PageSetupDialog: React.FC<PageSetupDialogProps> = ({
 
   return (
     <div
+      ref={dialogRef}
       className="page-setup-backdrop"
       onMouseDown={handleBackdropClick}
       onKeyDown={handleKeyDown}
@@ -370,6 +386,68 @@ export const PageSetupDialog: React.FC<PageSetupDialogProps> = ({
               Show page numbers
             </label>
           </div>
+          {/* Advanced page numbering options — visible when showPageNumbers is on */}
+          {settings.footer?.enabled && settings.footer?.showPageNumbers && (
+            <div className="page-setup-numbering-options">
+              <div className="page-setup-numbering-row">
+                <div className="page-setup-numbering-field">
+                  <label className="page-setup-label">Format</label>
+                  <select
+                    className="page-setup-select"
+                    value={settings.footer?.pageNumberFormat ?? 'decimal'}
+                    onChange={(e) => updateFooter({ pageNumberFormat: e.target.value as PageNumberFormat })}
+                  >
+                    <option value="decimal">1, 2, 3</option>
+                    <option value="lowerRoman">i, ii, iii</option>
+                    <option value="upperRoman">I, II, III</option>
+                    <option value="lowerAlpha">a, b, c</option>
+                    <option value="upperAlpha">A, B, C</option>
+                  </select>
+                </div>
+                <div className="page-setup-numbering-field">
+                  <label className="page-setup-label">Position</label>
+                  <select
+                    className="page-setup-select"
+                    value={settings.footer?.pageNumberPosition ?? 'footer-center'}
+                    onChange={(e) => updateFooter({ pageNumberPosition: e.target.value as PageNumberPosition })}
+                  >
+                    <option value="header-left">Header Left</option>
+                    <option value="header-center">Header Center</option>
+                    <option value="header-right">Header Right</option>
+                    <option value="footer-left">Footer Left</option>
+                    <option value="footer-center">Footer Center</option>
+                    <option value="footer-right">Footer Right</option>
+                  </select>
+                </div>
+                <div className="page-setup-numbering-field">
+                  <label className="page-setup-label">Start at</label>
+                  <input
+                    type="number"
+                    className="page-setup-margin-input"
+                    placeholder="Auto"
+                    value={settings.footer?.pageNumberStartAt ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateFooter({
+                        pageNumberStartAt: val === '' ? undefined : Math.max(1, parseInt(val, 10) || 1),
+                      });
+                    }}
+                    min="1"
+                  />
+                </div>
+              </div>
+              <div className="page-setup-numbering-reset">
+                <label className="page-setup-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.footer?.sectionResetPageNumbers ?? false}
+                    onChange={(e) => updateFooter({ sectionResetPageNumbers: e.target.checked })}
+                  />
+                  Restart numbering at each section break
+                </label>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer actions */}

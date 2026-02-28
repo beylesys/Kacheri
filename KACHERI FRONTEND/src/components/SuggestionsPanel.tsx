@@ -1,11 +1,13 @@
 // KACHERI FRONTEND/src/components/SuggestionsPanel.tsx
 // Main suggestions panel drawer for document track changes.
 
-import { useState, useCallback } from 'react';
-import { useSuggestions, type SuggestionFilterTab } from '../hooks/useSuggestions';
-import { suggestionsApi, type Suggestion } from '../api/suggestions';
+import { memo, useState, useCallback, useMemo } from 'react';
+import { useSuggestions, type SuggestionFilterTab, type SuggestionServerFilters } from '../hooks/useSuggestions';
+import { suggestionsApi, type Suggestion, type ChangeType } from '../api/suggestions';
 import { SuggestionItem } from './SuggestionItem';
 import './suggestionsPanel.css';
+
+type ChangeTypeChip = ChangeType | 'all';
 
 type Props = {
   docId: string;
@@ -18,7 +20,7 @@ type Props = {
   onSelectSuggestion?: (suggestion: Suggestion | null) => void;
 };
 
-export function SuggestionsPanel({
+function SuggestionsPanelInner({
   docId,
   open,
   onClose,
@@ -28,7 +30,14 @@ export function SuggestionsPanel({
   selectedSuggestionId,
   onSelectSuggestion,
 }: Props) {
-  const { suggestions: _suggestions, loading, error, refetch, filterSuggestions, stats } = useSuggestions(docId, refreshKey);
+  const [changeTypeFilter, setChangeTypeFilter] = useState<ChangeTypeChip>('all');
+
+  const serverFilters = useMemo<SuggestionServerFilters | undefined>(() => {
+    if (changeTypeFilter === 'all') return undefined;
+    return { changeType: changeTypeFilter };
+  }, [changeTypeFilter]);
+
+  const { suggestions: _suggestions, loading, error, refetch, filterSuggestions, stats } = useSuggestions(docId, refreshKey, serverFilters);
 
   const [filter, setFilter] = useState<SuggestionFilterTab>('all');
   const [processing, setProcessing] = useState(false);
@@ -87,16 +96,17 @@ export function SuggestionsPanel({
   }, [selectedSuggestionId, onSelectSuggestion]);
 
   const getEmptyMessage = () => {
+    const typeLabel = changeTypeFilter !== 'all' ? ` ${changeTypeFilter}` : '';
     switch (filter) {
       case 'pending':
-        return 'No pending suggestions.';
+        return `No pending${typeLabel} suggestions.`;
       case 'accepted':
-        return 'No accepted suggestions.';
+        return `No accepted${typeLabel} suggestions.`;
       case 'rejected':
-        return 'No rejected suggestions.';
+        return `No rejected${typeLabel} suggestions.`;
       case 'all':
       default:
-        return 'No suggestions yet.';
+        return changeTypeFilter !== 'all' ? `No ${changeTypeFilter} suggestions.` : 'No suggestions yet.';
     }
   };
 
@@ -105,14 +115,26 @@ export function SuggestionsPanel({
       className={`suggestions-panel ${open ? 'open' : ''}`}
       role="complementary"
       aria-label="Suggestions"
-      aria-expanded={open}
     >
       {/* Header */}
       <div className="suggestions-header">
         <div className="suggestions-title">Suggestions</div>
-        <button className="suggestions-close" onClick={onClose} title="Close">
+        <button className="suggestions-close" onClick={onClose} title="Close" aria-label="Close panel">
           x
         </button>
+      </div>
+
+      {/* Change type filter chips */}
+      <div className="suggestions-change-filter">
+        {(['all', 'insert', 'delete', 'replace'] as ChangeTypeChip[]).map((ct) => (
+          <button
+            key={ct}
+            className={`suggestions-change-chip ${ct !== 'all' ? ct : ''} ${changeTypeFilter === ct ? 'active' : ''}`}
+            onClick={() => setChangeTypeFilter(ct)}
+          >
+            {ct === 'all' ? 'All Types' : ct.charAt(0).toUpperCase() + ct.slice(1)}
+          </button>
+        ))}
       </div>
 
       {/* Bulk actions (editor+ only, when pending > 0) */}
@@ -190,3 +212,5 @@ export function SuggestionsPanel({
     </div>
   );
 }
+
+export const SuggestionsPanel = memo(SuggestionsPanelInner);

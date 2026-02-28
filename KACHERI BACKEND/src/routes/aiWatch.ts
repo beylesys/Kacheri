@@ -1,9 +1,10 @@
 // KACHERI BACKEND/src/routes/aiWatch.ts
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { db, repoPath } from "../db";
+import { requirePlatformAdmin, checkDocAccess } from "../workspace/middleware";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,6 +32,8 @@ const LEGACY_AI_TYPE = "ai:action" as const;
  *  3) Legacy / summary rows:
  *     - type = 'ai:action' (old bridge summary packets)
  *     - type LIKE 'ai:%'   (older writers that encoded action in type)
+ *
+ * Uses positional '?' placeholder for the legacy type parameter.
  */
 const AI_ACTION_WHERE = `
   (
@@ -39,7 +42,7 @@ const AI_ACTION_WHERE = `
     -- Exports appear as actions in the dashboard
     OR kind IN ('docx', 'pdf')
     -- Legacy summary packets emitted by the provenance bridge
-    OR type = @legacyType
+    OR type = ?
     -- Older AI rows that stored the action directly in "type"
     OR (type IS NOT NULL AND type LIKE 'ai:%')
   )
@@ -203,32 +206,31 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // AI ACTIONS: summary
   // -------------------------------------------------------------------------
-  app.get("/ai/watch/summary", async (req) => {
+  app.get("/ai/watch/summary", async (req, reply) => {
+    if (!requirePlatformAdmin(req, reply)) return;
     const q = (req.query || {}) as Partial<{ debug: string | number }>;
     const debug =
       q.debug !== undefined &&
       String(q.debug).toLowerCase() !== "false" &&
       String(q.debug) !== "0";
 
-    const totalRow = db
-      .prepare(
-        `SELECT COUNT(*) AS c
-         FROM proofs
-         WHERE ${AI_ACTION_WHERE}`
-      )
-      .get({ legacyType: LEGACY_AI_TYPE }) as any;
+    const totalRow = await db.queryOne<{ c: number }>(
+      `SELECT COUNT(*) AS c
+       FROM proofs
+       WHERE ${AI_ACTION_WHERE}`,
+      [LEGACY_AI_TYPE]
+    );
 
     const total = Number(totalRow?.c || 0);
 
-    const sampleRows = db
-      .prepare(
-        `SELECT id, doc_id, ts, path, kind, type, payload, meta, sha256
-         FROM proofs
-         WHERE ${AI_ACTION_WHERE}
-         ORDER BY ts DESC, id DESC
-         LIMIT 500`
-      )
-      .all({ legacyType: LEGACY_AI_TYPE }) as ProofRow[];
+    const sampleRows = await db.queryAll<ProofRow>(
+      `SELECT id, doc_id, ts, path, kind, type, payload, meta, sha256
+       FROM proofs
+       WHERE ${AI_ACTION_WHERE}
+       ORDER BY ts DESC, id DESC
+       LIMIT 500`,
+      [LEGACY_AI_TYPE]
+    );
 
     const byAction: Record<string, number> = {};
     const byKind: Record<string, number> = {};
@@ -312,7 +314,8 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // AI ACTIONS: events (recent feed)
   // -------------------------------------------------------------------------
-  app.get("/ai/watch/events", async (req) => {
+  app.get("/ai/watch/events", async (req, reply) => {
+    if (!requirePlatformAdmin(req, reply)) return;
     const q = (req.query || {}) as Partial<{
       limit: string | number;
       before: string | number;
@@ -322,26 +325,22 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
     const limit = Math.min(Math.max(requestedLimit || 50, 1), 200);
     const before = q.before ? Number(q.before) : undefined;
 
-    const params: any = {
-      legacyType: LEGACY_AI_TYPE,
-      limit,
-    };
-    if (before != null && !Number.isNaN(before)) {
-      params.before = before;
-    }
+    const hasBefore = before != null && !Number.isNaN(before);
+    const queryParams: unknown[] = [LEGACY_AI_TYPE];
+    if (hasBefore) queryParams.push(before!);
+    queryParams.push(limit);
 
-    const rows = db
-      .prepare(
-        `
-        SELECT id, doc_id, ts, path, kind, type, payload, meta, sha256
-        FROM proofs
-        WHERE ${AI_ACTION_WHERE}
-          ${before != null && !Number.isNaN(before) ? "AND ts < @before" : ""}
-        ORDER BY ts DESC, id DESC
-        LIMIT @limit
-        `
-      )
-      .all(params) as ProofRow[];
+    const rows = await db.queryAll<ProofRow>(
+      `
+      SELECT id, doc_id, ts, path, kind, type, payload, meta, sha256
+      FROM proofs
+      WHERE ${AI_ACTION_WHERE}
+        ${hasBefore ? "AND ts < ?" : ""}
+      ORDER BY ts DESC, id DESC
+      LIMIT ?
+      `,
+      queryParams
+    );
 
     const events = rows.map((r) => {
       const payloadStr = r.payload || "";
@@ -378,7 +377,8 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // EXPORTS verification summary (docx/pdf)
   // -------------------------------------------------------------------------
-  app.get("/ai/watch/exports-summary", async () => {
+  app.get("/ai/watch/exports-summary", async (req, reply) => {
+    if (!requirePlatformAdmin(req, reply)) return;
     type Row = {
       doc_id: string;
       kind: string | null;
@@ -386,17 +386,16 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
       path: string | null;
     };
 
-    const rows = db
-      .prepare(
-        `
-        SELECT doc_id, kind, hash, path
-        FROM proofs
-        WHERE kind IN ('docx','pdf')
-        ORDER BY ts DESC, id DESC
-        LIMIT 5000
-        `
-      )
-      .all() as Row[];
+    const rows = await db.queryAll<Row>(
+      `
+      SELECT doc_id, kind, hash, path
+      FROM proofs
+      WHERE kind IN ('docx','pdf')
+      ORDER BY ts DESC, id DESC
+      LIMIT 5000
+      `,
+      []
+    );
 
     const exportRoot = repoPath("storage", "exports");
 
@@ -464,27 +463,27 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   app.get<{
     Params: { id: string };
-  }>("/docs/:id/compose-determinism", async (req) => {
+  }>("/docs/:id/compose-determinism", async (req, reply) => {
     const docId = req.params.id;
+    if (!await checkDocAccess(db, req, reply, docId, 'viewer')) return;
 
     // Get all compose proofs for this document
-    const rows = db
-      .prepare(
-        `
-        SELECT id, ts, payload, meta
-        FROM proofs
-        WHERE doc_id = ?
-          AND kind LIKE 'ai:compose%'
-        ORDER BY ts DESC
-        LIMIT 100
-        `
-      )
-      .all(docId) as Array<{
-        id: number;
-        ts: number;
-        payload: string | null;
-        meta: string | null;
-      }>;
+    const rows = await db.queryAll<{
+      id: number;
+      ts: number;
+      payload: string | null;
+      meta: string | null;
+    }>(
+      `
+      SELECT id, ts, payload, meta
+      FROM proofs
+      WHERE doc_id = ?
+        AND kind LIKE 'ai:compose%'
+      ORDER BY ts DESC
+      LIMIT 100
+      `,
+      [docId]
+    );
 
     let total = rows.length;
     let checked = 0;
@@ -530,30 +529,30 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // AI PROVIDER ANALYTICS: usage and latency stats by provider/model (Phase 5 - P2.3)
   // -------------------------------------------------------------------------
-  app.get("/ai/watch/providers", async () => {
+  app.get("/ai/watch/providers", async (req, reply) => {
+    if (!requirePlatformAdmin(req, reply)) return;
     // First, get aggregate stats per provider/model
-    const aggregateRows = db
-      .prepare(
-        `
-        SELECT
-          json_extract(meta, '$.provider') as provider,
-          json_extract(meta, '$.model') as model,
-          COUNT(*) as totalCalls,
-          MAX(ts) as lastUsed
-        FROM proofs
-        WHERE kind LIKE 'ai:%'
-          AND json_extract(meta, '$.provider') IS NOT NULL
-        GROUP BY provider, model
-        ORDER BY totalCalls DESC
-        LIMIT 50
-        `
-      )
-      .all() as Array<{
-        provider: string | null;
-        model: string | null;
-        totalCalls: number;
-        lastUsed: number;
-      }>;
+    const aggregateRows = await db.queryAll<{
+      provider: string | null;
+      model: string | null;
+      totalCalls: number;
+      lastUsed: number;
+    }>(
+      `
+      SELECT
+        json_extract(meta, '$.provider') as provider,
+        json_extract(meta, '$.model') as model,
+        COUNT(*) as totalCalls,
+        MAX(ts) as lastUsed
+      FROM proofs
+      WHERE kind LIKE 'ai:%'
+        AND json_extract(meta, '$.provider') IS NOT NULL
+      GROUP BY provider, model
+      ORDER BY totalCalls DESC
+      LIMIT 50
+      `,
+      []
+    );
 
     // For each provider/model combo, fetch latencies for percentile calculation
     const providers: Array<{
@@ -583,26 +582,25 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
       totalCallsAll += row.totalCalls;
 
       // Fetch all latencies for this provider/model to calculate percentiles
-      const latencyRows = db
-        .prepare(
-          `
-          SELECT
-            json_extract(meta, '$.elapsedMs') as metaMs,
-            json_extract(payload, '$.elapsedMs') as payloadMs,
-            json_extract(payload, '$.timing.elapsedMs') as timingMs
-          FROM proofs
-          WHERE kind LIKE 'ai:%'
-            AND json_extract(meta, '$.provider') = ?
-            AND json_extract(meta, '$.model') = ?
-          ORDER BY ts DESC
-          LIMIT 500
-          `
-        )
-        .all(providerName, modelName) as Array<{
-          metaMs: number | null;
-          payloadMs: number | null;
-          timingMs: number | null;
-        }>;
+      const latencyRows = await db.queryAll<{
+        metaMs: number | null;
+        payloadMs: number | null;
+        timingMs: number | null;
+      }>(
+        `
+        SELECT
+          json_extract(meta, '$.elapsedMs') as metaMs,
+          json_extract(payload, '$.elapsedMs') as payloadMs,
+          json_extract(payload, '$.timing.elapsedMs') as timingMs
+        FROM proofs
+        WHERE kind LIKE 'ai:%'
+          AND json_extract(meta, '$.provider') = ?
+          AND json_extract(meta, '$.model') = ?
+        ORDER BY ts DESC
+        LIMIT 500
+        `,
+        [providerName, modelName]
+      );
 
       // Extract valid latencies
       const latencies: number[] = [];
@@ -657,7 +655,8 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // AI USAGE HOTSPOTS: identify high-activity documents (Phase 5 - P2.2)
   // -------------------------------------------------------------------------
-  app.get("/ai/watch/hotspots", async (req) => {
+  app.get("/ai/watch/hotspots", async (req, reply) => {
+    if (!requirePlatformAdmin(req, reply)) return;
     const q = (req.query || {}) as Partial<{
       period: string;
       limit: string | number;
@@ -679,45 +678,44 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
     };
 
     // Query documents with AI activity in the period
-    const rows = db
-      .prepare(
-        `
-        SELECT
-          d.id as docId,
-          d.title as docTitle,
-          d.workspace_id as workspaceId,
-          w.name as workspaceName,
-          COUNT(p.id) as aiActionCount,
-          SUM(CASE
-            WHEN json_extract(p.meta, '$.verificationStatus') = 'fail' THEN 1
-            ELSE 0
-          END) as verificationFailures,
-          SUM(CASE
-            WHEN json_extract(p.meta, '$.determinismStatus') = 'drift' THEN 1
-            ELSE 0
-          END) as driftEvents,
-          MAX(p.ts) as lastActivity
-        FROM proofs p
-        INNER JOIN docs d ON p.doc_id = d.id
-        LEFT JOIN workspaces w ON d.workspace_id = w.id
-        WHERE p.kind LIKE 'ai:%'
-          AND p.ts > @cutoff
-        GROUP BY d.id
-        HAVING aiActionCount >= 5
-        ORDER BY aiActionCount DESC
-        LIMIT @limit
-        `
-      )
-      .all({ cutoff: cutoffTs, limit }) as Array<{
-        docId: string;
-        docTitle: string | null;
-        workspaceId: string | null;
-        workspaceName: string | null;
-        aiActionCount: number;
-        verificationFailures: number;
-        driftEvents: number;
-        lastActivity: number;
-      }>;
+    const rows = await db.queryAll<{
+      docId: string;
+      docTitle: string | null;
+      workspaceId: string | null;
+      workspaceName: string | null;
+      aiActionCount: number;
+      verificationFailures: number;
+      driftEvents: number;
+      lastActivity: number;
+    }>(
+      `
+      SELECT
+        d.id as docId,
+        d.title as docTitle,
+        d.workspace_id as workspaceId,
+        w.name as workspaceName,
+        COUNT(p.id) as aiActionCount,
+        SUM(CASE
+          WHEN json_extract(p.meta, '$.verificationStatus') = 'fail' THEN 1
+          ELSE 0
+        END) as verificationFailures,
+        SUM(CASE
+          WHEN json_extract(p.meta, '$.determinismStatus') = 'drift' THEN 1
+          ELSE 0
+        END) as driftEvents,
+        MAX(p.ts) as lastActivity
+      FROM proofs p
+      INNER JOIN docs d ON p.doc_id = d.id
+      LEFT JOIN workspaces w ON d.workspace_id = w.id
+      WHERE p.kind LIKE 'ai:%'
+        AND p.ts > ?
+      GROUP BY d.id
+      HAVING aiActionCount >= 5
+      ORDER BY aiActionCount DESC
+      LIMIT ?
+      `,
+      [cutoffTs, limit]
+    );
 
     // Calculate risk level for each hotspot
     const hotspots = rows.map((row) => {
@@ -762,28 +760,28 @@ export default async function aiWatchRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   app.get<{
     Params: { id: string };
-  }>("/docs/:id/ai-ranges", async (req) => {
+  }>("/docs/:id/ai-ranges", async (req, reply) => {
     const docId = req.params.id;
+    if (!await checkDocAccess(db, req, reply, docId, 'viewer')) return;
 
     // Get all AI proofs with position data for this document
-    const rows = db
-      .prepare(
-        `
-        SELECT id, ts, kind, meta, payload
-        FROM proofs
-        WHERE doc_id = ?
-          AND (kind LIKE 'ai:%')
-        ORDER BY ts DESC
-        LIMIT 200
-        `
-      )
-      .all(docId) as Array<{
-        id: number;
-        ts: number;
-        kind: string | null;
-        meta: string | null;
-        payload: string | null;
-      }>;
+    const rows = await db.queryAll<{
+      id: number;
+      ts: number;
+      kind: string | null;
+      meta: string | null;
+      payload: string | null;
+    }>(
+      `
+      SELECT id, ts, kind, meta, payload
+      FROM proofs
+      WHERE doc_id = ?
+        AND (kind LIKE 'ai:%')
+      ORDER BY ts DESC
+      LIMIT 200
+      `,
+      [docId]
+    );
 
     const ranges: Array<{
       id: number;

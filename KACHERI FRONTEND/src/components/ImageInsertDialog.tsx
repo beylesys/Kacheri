@@ -1,8 +1,9 @@
 // KACHERI FRONTEND/src/components/ImageInsertDialog.tsx
 // Dialog for inserting images via upload or URL
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { ImagesAPI } from "../api";
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import "./imageInsertDialog.css";
 
 type TabType = "upload" | "url";
@@ -152,30 +153,55 @@ export default function ImageInsertDialog({
     [handleFileUpload]
   );
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
+  // Escape to close
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); handleClose(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, handleClose]);
+
   if (!open) return null;
 
   return (
-    <div className="image-dialog-overlay" onClick={handleClose}>
+    <div className="image-dialog-overlay" onClick={handleClose} role="dialog" aria-modal="true" aria-labelledby="image-insert-title" ref={dialogRef}>
       <div
         className="image-dialog"
         onClick={(e) => e.stopPropagation()}
         onPaste={handlePaste}
       >
         <div className="image-dialog-header">
-          <h3>Insert Image</h3>
+          <h3 id="image-insert-title">Insert Image</h3>
           <button className="image-dialog-close" onClick={handleClose}>
             &times;
           </button>
         </div>
 
-        <div className="image-dialog-tabs">
+        <div className="image-dialog-tabs" role="tablist" aria-label="Image source" onKeyDown={(e) => {
+          if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); setActiveTab(activeTab === "upload" ? "url" : "upload"); }
+        }}>
           <button
+            role="tab"
+            aria-selected={activeTab === "upload"}
+            aria-controls="image-panel-upload"
+            id="image-tab-upload"
+            tabIndex={activeTab === "upload" ? 0 : -1}
             className={`image-dialog-tab ${activeTab === "upload" ? "active" : ""}`}
             onClick={() => setActiveTab("upload")}
           >
             Upload
           </button>
           <button
+            role="tab"
+            aria-selected={activeTab === "url"}
+            aria-controls="image-panel-url"
+            id="image-tab-url"
+            tabIndex={activeTab === "url" ? 0 : -1}
             className={`image-dialog-tab ${activeTab === "url" ? "active" : ""}`}
             onClick={() => setActiveTab("url")}
           >
@@ -183,7 +209,7 @@ export default function ImageInsertDialog({
           </button>
         </div>
 
-        <div className="image-dialog-content">
+        <div className="image-dialog-content" role="tabpanel" id={`image-panel-${activeTab}`} aria-labelledby={`image-tab-${activeTab}`}>
           {activeTab === "upload" && (
             <div
               className={`image-drop-zone ${dragOver ? "drag-over" : ""} ${uploading ? "uploading" : ""}`}

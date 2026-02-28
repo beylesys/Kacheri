@@ -7,7 +7,7 @@
  * - Synthetic user creation from headers
  */
 
-import type { Database } from 'better-sqlite3';
+import type { DbAdapter } from '../db/types';
 import type { FastifyRequest } from 'fastify';
 import { getAuthConfig } from './config';
 import { hashPassword } from './passwords';
@@ -75,7 +75,7 @@ export function hasDevUserHeader(req: FastifyRequest): boolean {
 /**
  * Seed the dev user into the database if it doesn't exist
  */
-export async function seedDevUser(db: Database): Promise<void> {
+export async function seedDevUser(db: DbAdapter): Promise<void> {
   const config = getAuthConfig();
 
   if (!config.devAutoSeed) {
@@ -83,9 +83,10 @@ export async function seedDevUser(db: Database): Promise<void> {
   }
 
   // Check if dev user already exists
-  const existing = db
-    .prepare(`SELECT id FROM users WHERE id = ?`)
-    .get(DEV_USER.id);
+  const existing = await db.queryOne<{ id: string }>(
+    `SELECT id FROM users WHERE id = ?`,
+    [DEV_USER.id]
+  );
 
   if (existing) {
     log.debug('Dev user already exists');
@@ -96,16 +97,10 @@ export async function seedDevUser(db: Database): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const passwordHash = await hashPassword(DEV_USER.password);
 
-  db.prepare(
+  await db.run(
     `INSERT INTO users (id, email, password_hash, display_name, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'active', ?, ?)`
-  ).run(
-    DEV_USER.id,
-    DEV_USER.email,
-    passwordHash,
-    DEV_USER.displayName,
-    now,
-    now
+     VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+    [DEV_USER.id, DEV_USER.email, passwordHash, DEV_USER.displayName, now, now]
   );
 
   log.info({ email: DEV_USER.email }, 'Dev user seeded');

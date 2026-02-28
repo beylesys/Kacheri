@@ -12,6 +12,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
       },
+      // KCL component library assets → Fastify
+      "/kcl": {
+        target: "http://127.0.0.1:4000",
+        changeOrigin: true,
+      },
       // Yjs websocket
       "/yjs": {
         // Yjs now runs as a standalone websocket server (default port 1234)

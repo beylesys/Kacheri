@@ -1,5 +1,6 @@
 // KACHERI FRONTEND/src/components/CommandPalette.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import "../palette.css";
 
 export type Command = {
@@ -29,6 +30,8 @@ export default function CommandPalette(props: {
   const [query, setQuery] = useState("");
   const [activeCommand, setActiveCommand] = useState<Command | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, isOpen);
 
   // Reset & focus when opened
   useEffect(() => {
@@ -121,7 +124,7 @@ export default function CommandPalette(props: {
     : "Type to filter commands… (Enter runs top command, Esc closes)";
 
   return (
-    <div className="pal-overlay" onClick={closePalette}>
+    <div className="pal-overlay" onClick={closePalette} role="dialog" aria-modal="true" aria-label="Command palette" ref={dialogRef}>
       {/* Prevent palette mousedown from stealing editor focus (which collapses selection) */}
       <div
         className="pal"

@@ -1,9 +1,10 @@
 // KACHERI FRONTEND/src/components/ShareDialog.tsx
 // Share Dialog for document-level permission management
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { docPermissionsApi, type DocPermission, type DocRole, type WorkspaceAccessLevel } from '../api/docPermissions';
 import { workspacesApi, type WorkspaceMember } from '../api/workspaces';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import './shareDialog.css';
 
 const DOC_ROLES: DocRole[] = ['owner', 'editor', 'commenter', 'viewer'];
@@ -41,6 +42,9 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
   workspaceId,
   onClose,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
+
   const [permissions, setPermissions] = useState<DocPermission[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -187,6 +191,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
 
   return (
     <div
+      ref={dialogRef}
       className="share-dialog-backdrop"
       onMouseDown={handleBackdropClick}
       onKeyDown={handleKeyDown}

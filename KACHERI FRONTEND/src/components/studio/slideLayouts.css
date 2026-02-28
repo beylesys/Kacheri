@@ -1,0 +1,454 @@
+/* KACHERI FRONTEND/src/components/studio/slideLayouts.css
+   Slide Layout Picker — MC3: Pre-built slide layout gallery.
+   Mirrors templateGallery.css patterns for consistency.
+   See: Docs/Roadmap/beyle-platform-shell-work-scope.md — Slice MC3
+*/
+
+/* ============= Overlay ============= */
+
+.slide-layout-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+/* ============= Picker Dialog ============= */
+
+.slide-layout-picker {
+  width: 90%;
+  max-width: 640px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.25));
+  overflow: hidden;
+}
+
+/* ── Header ── */
+
+.slide-layout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.slide-layout-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.slide-layout-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 16px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.slide-layout-close:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ── Grid ── */
+
+.slide-layout-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.slide-layout-grid::-webkit-scrollbar {
+  width: 4px;
+}
+
+.slide-layout-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.slide-layout-grid::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* ── Card ── */
+
+.slide-layout-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.slide-layout-card:hover,
+.slide-layout-card:focus-visible {
+  border-color: var(--brand-400, #a78bfa);
+  box-shadow: 0 2px 12px rgba(124, 92, 255, 0.1);
+}
+
+.slide-layout-card:focus-visible {
+  outline: 2px solid var(--brand-500, #7c5cff);
+  outline-offset: -2px;
+}
+
+.slide-layout-card-preview {
+  height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface, #252536);
+  border-bottom: 1px solid var(--border);
+  padding: 12px;
+  overflow: hidden;
+}
+
+.slide-layout-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 10px;
+}
+
+.slide-layout-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slide-layout-card-desc {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============= Miniature Preview Shapes ============= */
+/* Each layout preview is a small schematic showing colored
+   rectangles that represent the layout arrangement. */
+
+.layout-preview-frame {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  border-radius: 3px;
+  background: #1a1a2e;
+  overflow: hidden;
+}
+
+/* Generic block shapes for previews */
+.layout-preview-block {
+  border-radius: 2px;
+}
+
+.layout-preview-block--heading {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.layout-preview-block--text {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.layout-preview-block--image {
+  background: rgba(99, 102, 241, 0.3);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+.layout-preview-block--accent {
+  background: rgba(16, 185, 129, 0.3);
+}
+
+/* ── Title Slide: centered heading + subtitle ── */
+.layout-preview-title-slide .layout-preview-frame {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+}
+
+.layout-preview-title-slide .layout-preview-block--heading {
+  width: 60%;
+  height: 10px;
+}
+
+.layout-preview-title-slide .layout-preview-block--text {
+  width: 40%;
+  height: 6px;
+}
+
+/* ── Title + Content: heading top, text below ── */
+.layout-preview-title-content .layout-preview-frame {
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+}
+
+.layout-preview-title-content .layout-preview-block--heading {
+  width: 50%;
+  height: 8px;
+}
+
+.layout-preview-title-content .layout-preview-block--text {
+  width: 90%;
+  height: 5px;
+}
+
+/* ── Two Column ── */
+.layout-preview-two-column .layout-preview-frame {
+  flex-direction: row;
+  gap: 6px;
+  padding: 10px;
+}
+
+.layout-preview-two-column .layout-preview-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.layout-preview-two-column .layout-preview-block--heading {
+  width: 70%;
+  height: 6px;
+}
+
+.layout-preview-two-column .layout-preview-block--text {
+  width: 90%;
+  height: 4px;
+}
+
+/* ── Image + Text ── */
+.layout-preview-image-text .layout-preview-frame {
+  flex-direction: row;
+  gap: 6px;
+  padding: 8px;
+}
+
+.layout-preview-image-text .layout-preview-block--image {
+  flex: 3;
+  min-height: 100%;
+}
+
+.layout-preview-image-text .layout-preview-col {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+}
+
+.layout-preview-image-text .layout-preview-block--heading {
+  width: 80%;
+  height: 6px;
+}
+
+.layout-preview-image-text .layout-preview-block--text {
+  width: 100%;
+  height: 4px;
+}
+
+/* ── Text + Image (mirrored) ── */
+.layout-preview-text-image .layout-preview-frame {
+  flex-direction: row;
+  gap: 6px;
+  padding: 8px;
+}
+
+.layout-preview-text-image .layout-preview-col {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+}
+
+.layout-preview-text-image .layout-preview-block--image {
+  flex: 3;
+  min-height: 100%;
+}
+
+.layout-preview-text-image .layout-preview-block--heading {
+  width: 80%;
+  height: 6px;
+}
+
+.layout-preview-text-image .layout-preview-block--text {
+  width: 100%;
+  height: 4px;
+}
+
+/* ── Bullet List ── */
+.layout-preview-bullet-list .layout-preview-frame {
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+}
+
+.layout-preview-bullet-list .layout-preview-block--heading {
+  width: 45%;
+  height: 8px;
+}
+
+.layout-preview-bullet-list .layout-preview-bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 8px;
+}
+
+.layout-preview-bullet-list .layout-preview-bullet {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.layout-preview-bullet-list .layout-preview-bullet-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+.layout-preview-bullet-list .layout-preview-bullet-line {
+  height: 3px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Full Image ── */
+.layout-preview-full-image .layout-preview-frame {
+  position: relative;
+  padding: 0;
+}
+
+.layout-preview-full-image .layout-preview-block--image {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  border: none;
+}
+
+.layout-preview-full-image .layout-preview-block--heading {
+  position: absolute;
+  bottom: 8px;
+  left: 10px;
+  right: 10px;
+  height: 8px;
+}
+
+/* ── Comparison ── */
+.layout-preview-comparison .layout-preview-frame {
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+}
+
+.layout-preview-comparison .layout-preview-block--heading {
+  width: 40%;
+  height: 6px;
+  align-self: center;
+}
+
+.layout-preview-comparison .layout-preview-row {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+}
+
+.layout-preview-comparison .layout-preview-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+}
+
+.layout-preview-comparison .layout-preview-block--accent {
+  width: 60%;
+  height: 5px;
+}
+
+.layout-preview-comparison .layout-preview-block--text {
+  width: 80%;
+  height: 3px;
+}
+
+.layout-preview-comparison .layout-preview-divider {
+  width: 1px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ── Quote ── */
+.layout-preview-quote .layout-preview-frame {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.layout-preview-quote .layout-preview-quote-mark {
+  font-size: 18px;
+  line-height: 1;
+  color: rgba(124, 92, 255, 0.4);
+  font-family: Georgia, serif;
+}
+
+.layout-preview-quote .layout-preview-block--text {
+  width: 70%;
+  height: 5px;
+}
+
+.layout-preview-quote .layout-preview-block--accent {
+  width: 30%;
+  height: 3px;
+  margin-top: 2px;
+}
+
+/* ============= Responsive ============= */
+
+@media (max-width: 767px) {
+  .slide-layout-picker {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .slide-layout-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+    padding: 12px 14px;
+  }
+}

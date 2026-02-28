@@ -1,0 +1,644 @@
+/* KACHERI FRONTEND/src/components/studio/propertiesPanel.css
+   Properties Panel — Edit Mode (Slice F2)
+   Styles for the Properties Panel, individual property editors,
+   and the DataGridEditor.
+*/
+
+/* ============= Properties Panel ============= */
+
+.properties-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* ── Header ── */
+
+.properties-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.properties-header-component {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-500);
+}
+
+.properties-header-id {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+/* ── Content (scrollable) ── */
+
+.properties-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.properties-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.properties-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.properties-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* ── Empty State ── */
+
+.properties-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 16px;
+  flex: 1;
+}
+
+.properties-empty-icon {
+  font-size: 36px;
+  opacity: 0.25;
+}
+
+.properties-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.properties-empty-desc {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  max-width: 220px;
+  line-height: 1.5;
+}
+
+/* ============= Property Section ============= */
+
+.properties-section {
+  border-bottom: 1px solid var(--border);
+}
+
+.properties-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: background 0.15s ease;
+}
+
+.properties-section-header:hover {
+  background: var(--surface);
+}
+
+.properties-section-arrow {
+  font-size: 8px;
+  color: var(--muted);
+  width: 10px;
+  text-align: center;
+}
+
+.properties-section-label {
+  flex: 1;
+  text-align: left;
+}
+
+.properties-section-count {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.properties-section-body {
+  padding: 0 14px 10px;
+  position: relative;
+}
+
+.properties-section-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.properties-section-disabled-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--panel-rgb, 255, 255, 255), 0.7);
+  color: var(--text-secondary, #666);
+  font-size: 12px;
+  font-style: italic;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* ============= Property Item ============= */
+
+.properties-item {
+  margin-bottom: 10px;
+}
+
+.properties-item-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.properties-item-editor {
+  width: 100%;
+}
+
+/* ============= Shared Editor Styles ============= */
+
+.properties-editor-input {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.properties-editor-input:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.12);
+}
+
+.properties-editor-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  min-height: 56px;
+  transition: border-color 0.15s ease;
+}
+
+.properties-editor-textarea:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.12);
+}
+
+.properties-editor-select {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.properties-editor-select:focus {
+  border-color: var(--brand-500);
+}
+
+/* ── Color Editor ── */
+
+.properties-editor-color {
+  position: relative;
+}
+
+.properties-editor-color-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.properties-editor-color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: box-shadow 0.15s ease;
+}
+
+.properties-editor-color-swatch:hover {
+  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.2);
+}
+
+.properties-editor-color-hex {
+  font-family: monospace;
+  font-size: 12px;
+  flex: 1;
+}
+
+.properties-editor-color-picker {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 8px;
+  background: var(--panel);
+}
+
+/* Override react-colorful sizing to fit the panel */
+.properties-editor-color-picker .react-colorful {
+  width: 100% !important;
+  height: 150px !important;
+}
+
+.properties-editor-color-presets {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.properties-editor-color-preset {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.properties-editor-color-preset:hover {
+  transform: scale(1.1);
+}
+
+.properties-editor-color-preset.active {
+  border-color: var(--brand-500);
+}
+
+/* ── Number Editor ── */
+
+.properties-editor-number {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.properties-editor-number-input {
+  width: 64px;
+  flex-shrink: 0;
+}
+
+.properties-editor-number-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+
+.properties-editor-number-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--brand-500);
+  cursor: pointer;
+  border: none;
+}
+
+.properties-editor-number-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--brand-500);
+  cursor: pointer;
+  border: none;
+}
+
+/* ── Image Editor ── */
+
+.properties-editor-image {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.properties-editor-image-preview {
+  width: 100%;
+  max-height: 80px;
+  overflow: hidden;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--border);
+}
+
+.properties-editor-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ── Boolean Toggle ── */
+
+.properties-editor-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.properties-editor-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.properties-editor-toggle-slider {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--border);
+  border-radius: 10px;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.properties-editor-toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+
+.properties-editor-toggle input:checked + .properties-editor-toggle-slider {
+  background: var(--brand-500);
+}
+
+.properties-editor-toggle input:checked + .properties-editor-toggle-slider::after {
+  transform: translateX(16px);
+}
+
+.properties-editor-toggle-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── JSON Editor ── */
+
+.properties-editor-json-raw {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.properties-editor-json-textarea {
+  font-family: monospace;
+  font-size: 11px;
+  min-height: 80px;
+}
+
+.properties-editor-json-error {
+  font-size: 11px;
+  color: var(--red-500, #ef4444);
+  padding: 4px 6px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: var(--radius-sm, 4px);
+}
+
+/* ============= DataGrid Editor ============= */
+
+.datagrid {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.datagrid-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.datagrid-th {
+  padding: 4px 2px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-weight: 600;
+  font-size: 10px;
+  text-align: left;
+  position: relative;
+  white-space: nowrap;
+}
+
+.datagrid-corner {
+  width: 28px;
+}
+
+.datagrid-td {
+  padding: 2px;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.datagrid-cell-input {
+  width: 100%;
+  padding: 3px 4px;
+  font-size: 11px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.datagrid-cell-input:focus {
+  border-color: var(--brand-500);
+  background: var(--bg);
+}
+
+.datagrid-cell-number {
+  text-align: right;
+  font-family: monospace;
+}
+
+.datagrid-dataset-label {
+  font-weight: 600;
+}
+
+.datagrid-row-label {
+  background: var(--surface);
+  position: relative;
+  min-width: 80px;
+}
+
+.datagrid-col-label {
+  font-size: 10px;
+}
+
+.datagrid-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  border-radius: 2px;
+  opacity: 0.4;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.datagrid-remove-btn:hover:not(:disabled) {
+  opacity: 1;
+  color: var(--red-500, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.datagrid-remove-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.15;
+}
+
+.datagrid-add-col {
+  width: 28px;
+  text-align: center;
+}
+
+.datagrid-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.datagrid-add-btn:hover {
+  border-color: var(--brand-500);
+  color: var(--brand-500);
+}
+
+.datagrid-add-row-btn {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  margin-top: 4px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  text-align: center;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.datagrid-add-row-btn:hover {
+  border-color: var(--brand-500);
+  color: var(--brand-500);
+}
+
+.datagrid-row-actions {
+  width: 24px;
+  text-align: center;
+}
+
+/* ── List Grid ── */
+
+.datagrid-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.datagrid-list-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.datagrid-list-order {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.datagrid-order-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 7px;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.datagrid-order-btn:hover:not(:disabled) {
+  opacity: 1;
+  color: var(--text);
+}
+
+.datagrid-order-btn:disabled {
+  opacity: 0.15;
+  cursor: not-allowed;
+}
+
+.datagrid-list-row .datagrid-cell-input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 4px 6px;
+}

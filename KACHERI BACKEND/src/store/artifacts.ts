@@ -52,6 +52,8 @@ export interface CreateArtifactInput {
   storageKey?: string;
   meta?: Record<string, unknown>;
   payload: string;
+  createdBy?: string | null;
+  workspaceId?: string | null;
 }
 
 export interface ArtifactFilter {
@@ -84,19 +86,18 @@ function rowToArtifact(row: ArtifactRow): Artifact {
 /* ---------- Store Implementation ---------- */
 
 /** Create a new artifact (proof) record */
-export function createArtifact(input: CreateArtifactInput): Artifact {
+export async function createArtifact(input: CreateArtifactInput): Promise<Artifact> {
   const now = Date.now();
   const meta = input.meta ? JSON.stringify(input.meta) : null;
 
-  const stmt = db.prepare(`
+  const result = await db.run(`
     INSERT INTO proofs (
       doc_id, kind, hash, path, storage_provider, storage_key,
       verified_at, verification_status, meta, payload, ts,
-      type, sha256
-    ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?, ?, ?, ?)
-  `);
-
-  const result = stmt.run(
+      type, sha256, created_by, workspace_id
+    ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?, ?, ?, ?, ?, ?)
+    RETURNING id
+  `, [
     input.docId,
     input.kind,
     input.hash,
@@ -107,41 +108,46 @@ export function createArtifact(input: CreateArtifactInput): Artifact {
     input.payload,
     now,
     input.kind, // legacy type column
-    input.hash  // legacy sha256 column
-  );
+    input.hash, // legacy sha256 column
+    input.createdBy ?? null,
+    input.workspaceId ?? null,
+  ]);
 
-  return getArtifactById(Number(result.lastInsertRowid))!;
+  return (await getArtifactById(Number(result.lastInsertRowid)))!;
 }
 
 /** Get artifact by ID */
-export function getArtifactById(id: number): Artifact | null {
-  const row = db
-    .prepare(`SELECT * FROM proofs WHERE id = ?`)
-    .get(id) as ArtifactRow | undefined;
+export async function getArtifactById(id: number): Promise<Artifact | null> {
+  const row = await db.queryOne<ArtifactRow>(
+    `SELECT * FROM proofs WHERE id = ?`,
+    [id]
+  );
 
   return row ? rowToArtifact(row) : null;
 }
 
 /** Get artifacts by document ID */
-export function getArtifactsByDoc(docId: string): Artifact[] {
-  const rows = db
-    .prepare(`SELECT * FROM proofs WHERE doc_id = ? ORDER BY ts DESC`)
-    .all(docId) as ArtifactRow[];
+export async function getArtifactsByDoc(docId: string): Promise<Artifact[]> {
+  const rows = await db.queryAll<ArtifactRow>(
+    `SELECT * FROM proofs WHERE doc_id = ? ORDER BY ts DESC`,
+    [docId]
+  );
 
   return rows.map(rowToArtifact);
 }
 
 /** Get artifact by hash */
-export function getArtifactByHash(hash: string): Artifact | null {
-  const row = db
-    .prepare(`SELECT * FROM proofs WHERE hash = ? LIMIT 1`)
-    .get(hash) as ArtifactRow | undefined;
+export async function getArtifactByHash(hash: string): Promise<Artifact | null> {
+  const row = await db.queryOne<ArtifactRow>(
+    `SELECT * FROM proofs WHERE hash = ? LIMIT 1`,
+    [hash]
+  );
 
   return row ? rowToArtifact(row) : null;
 }
 
 /** Get artifacts with filters */
-export function getArtifacts(filter: ArtifactFilter = {}): Artifact[] {
+export async function getArtifacts(filter: ArtifactFilter = {}): Promise<Artifact[]> {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
@@ -179,55 +185,58 @@ export function getArtifacts(filter: ArtifactFilter = {}): Artifact[] {
     LIMIT ? OFFSET ?
   `;
 
-  const rows = db.prepare(sql).all(...params, limit, offset) as ArtifactRow[];
+  params.push(limit, offset);
+
+  const rows = await db.queryAll<ArtifactRow>(sql, params);
   return rows.map(rowToArtifact);
 }
 
 /** Update verification status */
-export function updateVerification(
+export async function updateVerification(
   id: number,
   status: VerificationStatus
-): void {
+): Promise<void> {
   const now = Date.now();
 
-  db.prepare(`
+  await db.run(`
     UPDATE proofs
     SET verification_status = ?, verified_at = ?
     WHERE id = ?
-  `).run(status, now, id);
+  `, [status, now, id]);
 }
 
 /** Update storage location */
-export function updateStorageLocation(
+export async function updateStorageLocation(
   id: number,
   provider: StorageProvider,
   key: string
-): void {
-  db.prepare(`
+): Promise<void> {
+  await db.run(`
     UPDATE proofs
     SET storage_provider = ?, storage_key = ?
     WHERE id = ?
-  `).run(provider, key, id);
+  `, [provider, key, id]);
 }
 
 /** Delete artifact */
-export function deleteArtifact(id: number): boolean {
-  const result = db
-    .prepare(`DELETE FROM proofs WHERE id = ?`)
-    .run(id);
+export async function deleteArtifact(id: number): Promise<boolean> {
+  const result = await db.run(
+    `DELETE FROM proofs WHERE id = ?`,
+    [id]
+  );
 
   return result.changes > 0;
 }
 
 /** Count artifacts by verification status */
-export function countByVerificationStatus(): Record<VerificationStatus, number> {
-  const rows = db.prepare(`
+export async function countByVerificationStatus(): Promise<Record<VerificationStatus, number>> {
+  const rows = await db.queryAll<{ status: string; count: number }>(`
     SELECT
       COALESCE(verification_status, 'pending') as status,
       COUNT(*) as count
     FROM proofs
     GROUP BY verification_status
-  `).all() as Array<{ status: string; count: number }>;
+  `, []);
 
   const result: Record<VerificationStatus, number> = {
     pending: 0,
@@ -247,14 +256,14 @@ export function countByVerificationStatus(): Record<VerificationStatus, number> 
 }
 
 /** Count artifacts by storage provider */
-export function countByStorageProvider(): Record<StorageProvider, number> {
-  const rows = db.prepare(`
+export async function countByStorageProvider(): Promise<Record<StorageProvider, number>> {
+  const rows = await db.queryAll<{ provider: string; count: number }>(`
     SELECT
       COALESCE(storage_provider, 'local') as provider,
       COUNT(*) as count
     FROM proofs
     GROUP BY storage_provider
-  `).all() as Array<{ provider: string; count: number }>;
+  `, []);
 
   const result: Record<StorageProvider, number> = {
     local: 0,
@@ -273,25 +282,25 @@ export function countByStorageProvider(): Record<StorageProvider, number> {
 }
 
 /** Get artifacts pending verification */
-export function getPendingVerification(limit: number = 50): Artifact[] {
-  const rows = db.prepare(`
+export async function getPendingVerification(limit: number = 50): Promise<Artifact[]> {
+  const rows = await db.queryAll<ArtifactRow>(`
     SELECT * FROM proofs
     WHERE verification_status = 'pending' OR verification_status IS NULL
     ORDER BY ts ASC
     LIMIT ?
-  `).all(limit) as ArtifactRow[];
+  `, [limit]);
 
   return rows.map(rowToArtifact);
 }
 
 /** Get artifacts that failed verification */
-export function getFailedVerification(limit: number = 50): Artifact[] {
-  const rows = db.prepare(`
+export async function getFailedVerification(limit: number = 50): Promise<Artifact[]> {
+  const rows = await db.queryAll<ArtifactRow>(`
     SELECT * FROM proofs
     WHERE verification_status = 'fail'
     ORDER BY verified_at DESC
     LIMIT ?
-  `).all(limit) as ArtifactRow[];
+  `, [limit]);
 
   return rows.map(rowToArtifact);
 }

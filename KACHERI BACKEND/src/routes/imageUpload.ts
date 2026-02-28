@@ -8,7 +8,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { createHash, type BinaryLike } from 'crypto';
 import { recordProof } from '../provenanceStore';
-import { repoPath } from '../db';
+import { repoPath, db } from '../db';
+import { checkDocAccess } from '../workspace/middleware';
+import { getStorage, StorageNotFoundError } from '../storage';
 
 // --- Helpers ---
 async function ensureDir(dir: string) {
@@ -88,6 +90,7 @@ export default fp(async function imageUploadPlugin(app: FastifyInstance) {
   app.post('/docs/:id/images', async (req: any, reply: FastifyReply) => {
     const { id: rawId } = req.params as { id: string };
     const docId = normalizeId(rawId);
+    if (!checkDocAccess(db, req, reply, docId, 'editor')) return;
     const workspaceId = getWorkspaceId(req);
     const userId = getUserId(req);
 
@@ -115,19 +118,17 @@ export default fp(async function imageUploadPlugin(app: FastifyInstance) {
     const ext = MIME_TO_EXT[mimeType] || 'bin';
     const filename = `${ts}_${nanoid()}.${ext}`;
 
-    // Storage path: storage/images/doc-{docId}/{filename}
-    const imageDir = repoPath('storage', 'images', `doc-${docId}`);
-    await ensureDir(imageDir);
-    const filePath = path.join(imageDir, filename);
-    await fs.writeFile(filePath, buf);
+    // Storage path via storage client
+    const wsPrefix = workspaceId || '_global';
+    const storageKey = `${wsPrefix}/images/doc-${docId}/${filename}`;
+    await getStorage().write(storageKey, buf, mimeType);
 
     // Record proof
-    const relativePath = path.relative(process.cwd(), filePath);
-    recordProof({
+    await recordProof({
       doc_id: docId,
       kind: 'image:upload',
       hash,
-      path: relativePath,
+      path: storageKey,
       meta: {
         filename,
         mimeType,
@@ -135,6 +136,8 @@ export default fp(async function imageUploadPlugin(app: FastifyInstance) {
         actor: userId,
         workspaceId,
         originalName: file.filename,
+        storageKey,
+        storageProvider: getStorage().type,
       },
     });
 
@@ -157,6 +160,7 @@ export default fp(async function imageUploadPlugin(app: FastifyInstance) {
   app.get('/docs/:id/images/:filename', async (req: FastifyRequest, reply: FastifyReply) => {
     const { id: rawId, filename } = req.params as { id: string; filename: string };
     const docId = normalizeId(rawId);
+    if (!checkDocAccess(db, req, reply, docId, 'viewer')) return;
 
     // Security: use basename to prevent path traversal
     const safeFilename = path.basename(filename);
@@ -171,18 +175,34 @@ export default fp(async function imageUploadPlugin(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Invalid image extension' });
     }
 
-    const imageDir = repoPath('storage', 'images', `doc-${docId}`);
-    const filePath = path.join(imageDir, safeFilename);
-
+    // Read via storage client with fallback chain for backward compat
+    const wsId = getWorkspaceId(req);
+    let buf: Buffer;
     try {
-      const buf = await fs.readFile(filePath);
-      return reply
-        .type(mimeType)
-        .header('Cache-Control', 'public, max-age=31536000, immutable')
-        .send(buf);
-    } catch {
-      return reply.code(404).send({ error: 'Image not found' });
+      // Try workspace-scoped key first
+      const storageKey = `${wsId || '_global'}/images/doc-${docId}/${safeFilename}`;
+      buf = await getStorage().read(storageKey);
+    } catch (err) {
+      if (!(err instanceof StorageNotFoundError)) throw err;
+      try {
+        // Fallback: basePath-relative key (old files without workspace prefix)
+        buf = await getStorage().read(`images/doc-${docId}/${safeFilename}`);
+      } catch (err2) {
+        if (!(err2 instanceof StorageNotFoundError)) throw err2;
+        try {
+          // Legacy fallback: direct filesystem path
+          const imageDir = repoPath('storage', 'images', `doc-${docId}`);
+          const filePath = path.join(imageDir, safeFilename);
+          buf = await fs.readFile(filePath);
+        } catch {
+          return reply.code(404).send({ error: 'Image not found' });
+        }
+      }
     }
+    return reply
+      .type(mimeType)
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .send(buf);
   });
 
   /**
@@ -192,6 +212,7 @@ export default fp(async function imageUploadPlugin(app: FastifyInstance) {
   app.delete('/docs/:id/images/:filename', async (req: FastifyRequest, reply: FastifyReply) => {
     const { id: rawId, filename } = req.params as { id: string; filename: string };
     const docId = normalizeId(rawId);
+    if (!checkDocAccess(db, req, reply, docId, 'editor')) return;
     const workspaceId = getWorkspaceId(req);
     const userId = getUserId(req);
 
@@ -201,29 +222,50 @@ export default fp(async function imageUploadPlugin(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Invalid filename' });
     }
 
-    const imageDir = repoPath('storage', 'images', `doc-${docId}`);
-    const filePath = path.join(imageDir, safeFilename);
+    // Read via storage client to get hash, then delete
+    const wsPrefix = workspaceId || '_global';
+    const storageKey = `${wsPrefix}/images/doc-${docId}/${safeFilename}`;
 
     try {
-      // Get file hash before deletion for proof
-      const buf = await fs.readFile(filePath);
-      const hash = 'sha256:' + sha256Hex(buf);
-      const relativePath = path.relative(process.cwd(), filePath);
+      // Try to read from storage client (workspace-scoped, then basePath-relative)
+      let buf: Buffer;
+      try {
+        buf = await getStorage().read(storageKey);
+      } catch (readErr) {
+        if (!(readErr instanceof StorageNotFoundError)) throw readErr;
+        try {
+          buf = await getStorage().read(`images/doc-${docId}/${safeFilename}`);
+        } catch (readErr2) {
+          if (!(readErr2 instanceof StorageNotFoundError)) throw readErr2;
+          // Legacy fallback
+          const imageDir = repoPath('storage', 'images', `doc-${docId}`);
+          buf = await fs.readFile(path.join(imageDir, safeFilename));
+        }
+      }
 
-      // Delete the file
-      await fs.unlink(filePath);
+      const hash = 'sha256:' + sha256Hex(buf);
+
+      // Delete via storage client + legacy cleanup
+      await getStorage().delete(storageKey);
+      await getStorage().delete(`images/doc-${docId}/${safeFilename}`).catch(() => {});
+      try {
+        const imageDir = repoPath('storage', 'images', `doc-${docId}`);
+        await fs.unlink(path.join(imageDir, safeFilename));
+      } catch { /* legacy path may not exist */ }
 
       // Record proof
-      recordProof({
+      await recordProof({
         doc_id: docId,
         kind: 'image:delete',
         hash,
-        path: relativePath,
+        path: storageKey,
         meta: {
           filename: safeFilename,
           actor: userId,
           workspaceId,
           deletedAt: new Date().toISOString(),
+          storageKey,
+          storageProvider: getStorage().type,
         },
       });
 
@@ -243,27 +285,45 @@ export default fp(async function imageUploadPlugin(app: FastifyInstance) {
   app.get('/docs/:id/images', async (req: FastifyRequest, reply: FastifyReply) => {
     const { id: rawId } = req.params as { id: string };
     const docId = normalizeId(rawId);
+    if (!checkDocAccess(db, req, reply, docId, 'viewer')) return;
 
-    const imageDir = repoPath('storage', 'images', `doc-${docId}`);
+    // List via storage client with legacy fallback
+    const wsId = getWorkspaceId(req);
+    const wsPrefix = wsId || '_global';
+    let filenames: string[] = [];
 
     try {
-      const files = await fs.readdir(imageDir);
-      const images = files
-        .filter((f) => {
-          const ext = path.extname(f).slice(1).toLowerCase();
-          return EXT_TO_MIME[ext] !== undefined;
-        })
-        .map((f) => ({
-          filename: f,
-          url: `/docs/${rawId}/images/${f}`,
-        }));
+      // Try workspace-scoped prefix
+      const keys = await getStorage().list(`${wsPrefix}/images/doc-${docId}/`);
+      filenames = keys.map((k) => path.basename(k));
+    } catch { /* ignore */ }
 
-      return reply.send({ images });
-    } catch (e: any) {
-      if (e.code === 'ENOENT') {
-        return reply.send({ images: [] });
-      }
-      throw e;
+    if (filenames.length === 0) {
+      try {
+        // Fallback: basePath-relative prefix (old files)
+        const keys = await getStorage().list(`images/doc-${docId}/`);
+        filenames = keys.map((k) => path.basename(k));
+      } catch { /* ignore */ }
     }
+
+    if (filenames.length === 0) {
+      try {
+        // Legacy fallback: direct filesystem readdir
+        const imageDir = repoPath('storage', 'images', `doc-${docId}`);
+        filenames = await fs.readdir(imageDir);
+      } catch { /* directory may not exist */ }
+    }
+
+    const images = filenames
+      .filter((f) => {
+        const ext = path.extname(f).slice(1).toLowerCase();
+        return EXT_TO_MIME[ext] !== undefined;
+      })
+      .map((f) => ({
+        filename: f,
+        url: `/docs/${rawId}/images/${f}`,
+      }));
+
+    return reply.send({ images });
   });
 });
